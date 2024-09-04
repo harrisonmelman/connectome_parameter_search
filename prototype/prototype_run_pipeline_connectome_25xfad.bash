@@ -1,10 +1,8 @@
-dsi_studio="K:/CIVM_Apps/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
+dsi_studio="L:/CIVM_Apps/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
 in_dir="A:/20.5xfad.01/research"
 op_dir_base="B:/ProjectSpace/vc144/20.5xfad.01"
 
-#specimen_list="N59128NLSAM N59130NLSAM N59132NLSAM"
-#specimen_list="N60151NLSAM N60153NLSAM N60155NLSAM N60165NLSAM N60171NLSAM N60206NLSAM N60208NLSAM N60213NLSAM N60215NLSAM N60727NLSAM"
-specimen_list="N59134NLSAM N60076NLSAM N60145NLSAM N60149NLSAM"
+specimen_list="N59128NLSAM N59130NLSAM N59132NLSAM N59134NLSAM N60076NLSAM N60145NLSAM N60149NLSAM N60151NLSAM N60153NLSAM N60155NLSAM N60165NLSAM N60171NLSAM N60206NLSAM N60208NLSAM N60213NLSAM N60215NLSAM N60727NLSAM"
 for x in $specimen_list;
 do
 	diffusion_dir="$in_dir/diffusion${x}dsi_studio";
@@ -26,8 +24,7 @@ do
 
     # make a mask
     recmask=${op_dir}/nii4D_${x}_recmask.nii.gz;
-    /k/workstation/auxiliary/ants_2021_06_26/ImageMath.exe 3 ${recmask} ReplaceVoxelValue ${label_file} 1 1.84467440737096e+19 1
-    
+    ImageMath 3 ${recmask} ReplaceVoxelValue ${label_file} 1 1.84467440737096e+19 1
     # use mask with --mask $mask option
 
 	#Fib Creation
