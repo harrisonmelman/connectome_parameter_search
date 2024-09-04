@@ -1,0 +1,6 @@
+v2022=load('A:\20.5xfad.01\research\connectomeN59130NLSAMdsi_studio\nii4D_N59130NLSAM.src.gqi.0.9.fib.gz.2000K.trk.gz.N59130NLSAM_RCCF_labels.count.pass.connectivity.mat');
+v2024=load('B:\ProjectSpace\vc144\20.5xfad.01\N59130NLSAM\nii4D_N59130NLSAM.src.gz.gqi.0.9.tt.gz.N59130NLSAM_RCCF_labels.count.pass.connectivity.mat');
+
+figure;
+spl
+imagesc()
