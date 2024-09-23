@@ -14,7 +14,13 @@ if __name__ == '__main__':
     project_code = "20.5xfad.01"
     date = datetime.today().strftime('%Y-%m-%d')
     # the columns we DO NOT want to end up in the omni manova dataframe
-    exclusion_list = ["uid", "output", "source", "connectivity", "connectivity_output", "export", "connectivity_value"]
+    #exclusion_list = ["uid", "output", "source", "connectivity", "connectivity_output", "export", "connectivity_value"]
+
+    # actually, KEEP UID (to help the genetic algorithm), and exclude all columns I don't think will be varying
+    # we can always change this later if we start varying otsu_threhsold, for example
+    exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
+                      "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
+                      "connectivity", "connectivity_output"]
     experiment_table_path = "B:/ProjectSpace/vc144/connectome_parameter_search/connectome_parameter_lut.csv"
     output_dir = "B:/ProjectSpace/vc144/{}/Omni_Manova-{}".format(project_code, date)
     if not os.path.exists(output_dir):
@@ -37,9 +43,7 @@ if __name__ == '__main__':
     result_csv_dict = {}
     index = 0
     runno_list = df_template.keys()
-    debug = 0
-    if debug:
-        runno_list = ["N59128NLSAM", "N59130NLSAM"]
+    debug = 1
     quit_index = 0
     for experiment in experiment_list:
         quit_index += 0
@@ -48,17 +52,20 @@ if __name__ == '__main__':
             # force a COPY here so you do not edit the original
             # and to force each row to be distincy instead of a reference to the same dict over and over
             row = dict(df_template[runno])
+
+            # YAY, supposedely, we can now use real names again. Let's see if that is true...
+
             # this works, BUT it preserves the useful column names. can't have that
             # want to rename to groupN or subgroupN
             # in this experiment, GROUP is defined to be all of the specimen invariants (strain,sex,age...)
             # and subgroup is defined as all of the dsi studio tractography parameters
-            #row.update({x: experiment[x] for x in experiment.keys()-exclusion_list})
-            #print(row)
-            subgroup_index = 1
-            for key in sorted(experiment.keys()-exclusion_list):
-                row["subgroup{}".format(subgroup_index)] = experiment[key]
-                #print("% subgroup{} = {}".format(subgroup_index, key))
-                subgroup_index += 1
+            row.update({x: experiment[x] for x in experiment.keys()-exclusion_list})
+            print(row)
+            #subgroup_index = 1
+            #for key in sorted(experiment.keys()-exclusion_list):
+            #    row["subgroup{}".format(subgroup_index)] = experiment[key]
+            #    #print("% subgroup{} = {}".format(subgroup_index, key))
+            #    subgroup_index += 1
             # find the connectome file and add it to dict as "file"
             # for now just hard code to count pass conn
             # TODO: this does not allow it to exist in the MDS space
@@ -87,7 +94,7 @@ if __name__ == '__main__':
             index += 1
         if debug:
             quit_index += 1
-        if quit_index > 5:
+        if quit_index > 3:
             break
     # now I have a template dictionary
     # in output csv, I need one row for each experiment for each specimen
