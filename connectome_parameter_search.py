@@ -37,7 +37,7 @@ def main(project_code, runno_list):
     count = 0
     for experiment in experiment_list:
         if debug:
-            count+=1
+            count += 1
         # load in the parameter set from CSV file
         # an experiment is one line of the CSV
         experiment_dir = "{}/{}".format(output_dir_base, experiment["uid"])
