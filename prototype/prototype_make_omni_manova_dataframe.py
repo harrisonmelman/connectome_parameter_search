@@ -21,7 +21,8 @@ if __name__ == '__main__':
     exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
                       "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
                       "connectivity", "connectivity_output"]
-    experiment_table_path = "B:/ProjectSpace/vc144/connectome_parameter_search/connectome_parameter_lut.csv"
+    #experiment_table_path = "B:/ProjectSpace/vc144/connectome_parameter_search/connectome_parameter_lut.csv"
+    experiment_table_path = "B:/ProjectSpace/vc144/connectome_parameter_search/genetic_initial_population.csv"
     output_dir = "B:/ProjectSpace/vc144/{}/Omni_Manova-{}".format(project_code, date)
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
@@ -43,7 +44,7 @@ if __name__ == '__main__':
     result_csv_dict = {}
     index = 0
     runno_list = df_template.keys()
-    debug = 1
+    debug = False
     quit_index = 0
     for experiment in experiment_list:
         quit_index += 0
