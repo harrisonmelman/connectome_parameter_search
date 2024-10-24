@@ -12,6 +12,7 @@ import string
 from pathlib import Path
 import csv
 import math
+import scipy.io as scio
 
 
 # value boundaries
@@ -69,6 +70,7 @@ class GA_pipeline:
         # print(s)
         return s
 
+
     def find_vol_pct_threshold(self, image, percent):
         nifti = nib.load(image)
         data, header = nifti.get_fdata(), nifti.header
@@ -78,6 +80,7 @@ class GA_pipeline:
         threshold = data[index]
         print(threshold)
         return threshold
+
 
     def run_dsi_studio(self, experiment_list): # this changes
         '''csv_table = pd.read_csv(self.experiment_table_path, header=1, delimiter="\t")
@@ -120,6 +123,7 @@ class GA_pipeline:
                 json.dump(experiment, fp)
             exit_codes = [p.wait() for p in process_list]
 
+
     def run_omnimanova(self, gen):
         out_dir = "B:/ProjectSpace/vc144/{}/genetic_search/Omni_Manova-{}".format(self.project_code, gen)
         data_frame_path = out_dir+"/dataframe.csv"
@@ -158,6 +162,7 @@ class GA_pipeline:
                     print("FOUND THE CODE: {}".format(completion_code))
                     break
         print("process complete")
+
 
     def make_dataframe(self, generation):
         output_dir = "B:/ProjectSpace/vc144/{}/genetic_search/Omni_Manova-{}".format(self.project_code, generation)
@@ -303,6 +308,7 @@ class GA_pipeline:
       print(f"Change     = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1] - last_fitness}")
       last_fitness = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]
 
+
     def on_mutation(self, ga_instance, offspring_mutation):
         """this function should take in the mutated_children
         add them to the run_dsi)studio parameter csv
@@ -318,55 +324,52 @@ class GA_pipeline:
         current_sol_df = initial_pop_df.iloc[:23].copy()  # make a new solution df
         # this increments up the UID of the previous generation, not what we need to do.
         # the previous generation should keep their numbers, and the new generation should be thusly named
-        current_sol_df['uid'] = (24*(current_gen+1)) + current_sol_df['uid']
+        current_sol_df['uid'] = (23*(current_gen)) + current_sol_df['uid']
         keys = current_sol_df.columns.tolist()
         solution_keys = keys[3:8]  # modify accordingly
         current_sol_df[solution_keys] = current_sol
         exp_list = current_sol_df.to_dict(orient='records')
         concat_df = pd.concat([initial_pop_df, current_sol_df], axis=0)
-        concat_df.to_csv(self.experiment_table_path, index = False)
+        concat_df.to_csv(self.experiment_table_path, index=False)
 
         print("starting DSI Studio for generation {}".format(current_gen))
         self.run_dsi_studio(exp_list)
         self.make_dataframe(current_gen)
         print("starting OmniManova for generation {}".format(current_gen))
         self.run_omnimanova(current_gen)
-        print("Completed DSI Studi and OmniManova runs for generation {}".format(current_gen))
+        print("Completed DSI Studio and OmniManova runs for generation {}".format(current_gen))
 
 
     def fitness_function(self, ga_instance, solution, solution_idx):
         # not sure where to put this dict...
         # here for now. it is used to give MDS_data valid names
-        MDS_column_decoder = {'group1': 'gene_condition', 'group2': 'sex', 'group3': 'strain', 'group4': 'age',
-                              'subgroup01': 'uid', 'subgroup02': 'max_length', 'subgroup03': 'fa_threshold',
-                              'subgroup04': 'turning_angle', 'subgroup05': 'tip_iteration', 'subgroup06': 'smoothing',
-                              'subgroup07': 'seed_count', 'subgroup08': 'step_size', 'subgroup09': 'min_length',
-                              'subgroup10': 'method', 'subgroup11': 'otsu_threshold', 'subgroup12': 'seed_plan'}
 
         gen = ga_instance.generations_completed
         # read in global MDS results as a pandas dataframe
         # it will have cryptic column names
         # want to redefine it
-        MDS_path = "B:/ProjectSpace/vc144/{}/genetic_search/Omni_Manova-{}/BrainScaled_Omni_Manova/*/Global_.csv".format(self.project_code, gen)
-        print(MDS_path)
-        MDS_path = glob.glob(MDS_path)
-        MDS_path = MDS_path[0]
-        MDS_data_temp = pd.read_csv(MDS_path) # read MDS global data
-        MDS_data = MDS_data_temp.rename(columns=MDS_column_decoder)
-        # subgroup01 is uid
-        MDS_data = MDS_data[MDS_data['uid'] == gen*24 + solution_idx]
-        nTg1 = MDS_data[MDS_data['gene_condition'] == 'nTg'][['X1', 'X2']]
-        #nTg2 = MDS_data[MDS_data['group1'] == 'nTg2'][['X1','X2']] # third group
-        Tg = MDS_data[MDS_data['gene_condition'] == 'Tg'][['X1', 'X2']]
-
-        Tg_mean = (Tg['X1'].mean(), Tg['X2'].mean()) # average out the MDS points
-        nTg1_mean = (nTg1['X1'].mean(), nTg1['X2'].mean())
-        #nTg2_mean = (nTg2['X1'].mean(), nTg2['X2'].mean())
-
-        fitness1 = math.dist(Tg_mean, nTg1_mean) # maximize the distance between nTg and Tg groups
-        #fitness2 = 1 / math.distance(nTg1_mean, nTg2_mean) # minimize the distance between nTg and agilent groups
+        Semipar_path = "B:/ProjectSpace/vc144/{}/genetic_search/Omni_Manova-{}/BrainScaled_Omni_Manova/*/Global_Semipar_Image_0000.mat".format(self.project_code, gen)
+        print(Semipar_path)
+        Semipar_path = glob.glob(Semipar_path)
+        Semipar_path = Semipar_path[0]
+        file = scio.loadmat(Semipar_path) # read semipar file
+        cleaned_semipar = [str(item[0]).replace('[', '').replace(']', '').replace("'", "").split() for item in
+                        file['full_group_name']]
+        semipar_df = pd.DataFrame(cleaned_semipar)
+        uids = [(i // 17) for i in range(len(cleaned_semipar))]
+        semipar_df['uid'] = uids
+        dist_data = semipar_df[semipar_df['uid'] == gen * 23 + solution_idx]
+        nTg_idx = dist_data[dist_data[0] == 'nTg'].index
+        Tg_idx = dist_data[dist_data[0] == 'Tg'].index
+        summ = 0
+        for i in range(len(Tg_idx)):
+            for j in range(len(nTg_idx)):
+                dist = file['Dist'][i][j]
+                summ += dist
+        fitness1 = summ / (len(Tg_idx) * len(nTg_idx))
         return fitness1
         #return [fitness1, fitness2]
+
 
     def run_GA(self):
         in_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
@@ -395,8 +398,8 @@ class GA_pipeline:
 # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
 # otsu_threshold [0.3, 1.2]
 
-ngen = 1
-experiment_table_path = "B:/ProjectSpace/vc144/connectome_parameter_search/genetic_initial_population.csv"
+ngen = 5
+experiment_table_path = "B:/ProjectSpace/vc144/connectome_parameter_search/genetic_initial_population_.csv"
 project_code = "20.5xfad.01"
 runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
               'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
@@ -406,14 +409,16 @@ debug = False
 dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
 
 exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
-                      "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
-                      "connectivity", "connectivity_output"]
+                  "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
+                  "connectivity", "connectivity_output"]
 num_parents_mating = 5
 
-gene_space = [np.linspace(0, 0.7, 10), [15,25,35,45],np.linspace(0.01, 0.05, 5), np.linspace(0.1,5,5), np.linspace(10,200,10)]
+gene_space = [np.linspace(0, 0.7, 10), [15, 25, 35, 45], np.linspace(0.01, 0.05, 5),
+              np.linspace(0.1, 5, 5), np.linspace(10, 200, 10)]
 
-new_search = GA_pipeline(ngen=ngen, experiment_table_path=experiment_table_path, runno_list=runno_list,debug=False, dsi_studio=dsi_studio,
-                         exclusion_list=exclusion_list, num_parents_mating=num_parents_mating, gene_space=gene_space)
+new_search = GA_pipeline(ngen=ngen, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
+                         dsi_studio=dsi_studio, exclusion_list=exclusion_list, num_parents_mating=num_parents_mating,
+                         gene_space=gene_space)
 
 #new_search.make_dataframe(generation=1)
-new_search.run_omnimanova(gen=1)
+new_search.run_GA()
