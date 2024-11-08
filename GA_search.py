@@ -26,7 +26,7 @@ import scipy.io as scio
 
 class GA_pipeline:
     def __init__(self, ngen, experiment_table_path,
-                 runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space):
+                 runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type):
         # HARRISON ADDED RANDOMLY CHOSEN VALUE (previously unset)
         sol_per_pop = 5
         self.project_code = "20.5xfad.01"
@@ -44,6 +44,7 @@ class GA_pipeline:
         self.sol_per_pop = sol_per_pop
         self.num_genes = 5
         self.gene_space = gene_space
+        self.gene_type = gene_type
         # on CTX04, where this will be ran
         self.matlab = "C:/CIVM_Apps/MATLAB/R2021b/bin/matlab.exe"
 
@@ -261,7 +262,7 @@ class GA_pipeline:
         df = pd.DataFrame(result_csv_dict)
         df = df.T
         df.to_csv(output_file, sep=",", index_label="Var1")
-        exit()
+        '''return()
         # bad way to write below
         csv_columns = list(result_csv_dict[0].keys())
         csv_columns.insert(0, "Var1")
@@ -277,7 +278,7 @@ class GA_pipeline:
 
                 row = {"Var1": key}
                 row.update(value)
-                writer.writerow(row)
+                writer.writerow(row)'''
 
     '''def on_generation(self, ga_instance):
         current_sol = ga_instance.population
@@ -302,11 +303,12 @@ class GA_pipeline:
         print("Completed DSI Studion and OmniManova runs for generation {}".format(current_gen))'''
 
     def on_generation(self, ga_instance):
-      global last_fitness
+      #global last_fitness
       print(f"Generation = {ga_instance.generations_completed}")
       print(f"Fitness    = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]}")
-      print(f"Change     = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1] - last_fitness}")
-      last_fitness = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]
+      #print(f"Change     = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1] - last_fitness}")
+      #last_fitness = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]
+
 
 
     def on_mutation(self, ga_instance, offspring_mutation):
@@ -321,10 +323,10 @@ class GA_pipeline:
         # modify the initial_population csv file
         initial_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
         # copies the previous generation into a new dataframe that will represent the newly created solution space (previous gen plus current gen to be created)
-        current_sol_df = initial_pop_df.iloc[:23].copy()  # make a new solution df
+        current_sol_df = initial_pop_df.iloc[:24].copy()  # make a new solution df
         # this increments up the UID of the previous generation, not what we need to do.
         # the previous generation should keep their numbers, and the new generation should be thusly named
-        current_sol_df['uid'] = (23*(current_gen)) + current_sol_df['uid']
+        current_sol_df['uid'] = (24*(current_gen)) + current_sol_df['uid']
         keys = current_sol_df.columns.tolist()
         solution_keys = keys[3:8]  # modify accordingly
         current_sol_df[solution_keys] = current_sol
@@ -334,12 +336,15 @@ class GA_pipeline:
 
         print("starting DSI Studio for generation {}".format(current_gen))
         self.run_dsi_studio(exp_list)
+        print("making dataframe for generation {}".format(current_gen))
         self.make_dataframe(current_gen)
+        print("finished dataframe for generation {}".format(current_gen))
         print("starting OmniManova for generation {}".format(current_gen))
         self.run_omnimanova(current_gen)
         print("Completed DSI Studio and OmniManova runs for generation {}".format(current_gen))
 
-
+    def on_start(self, ga_instance):
+        ga_instance.generations_completed = 2
     def fitness_function(self, ga_instance, solution, solution_idx):
         # not sure where to put this dict...
         # here for now. it is used to give MDS_data valid names
@@ -358,7 +363,7 @@ class GA_pipeline:
         semipar_df = pd.DataFrame(cleaned_semipar)
         uids = [(i // 17) for i in range(len(cleaned_semipar))]
         semipar_df['uid'] = uids
-        dist_data = semipar_df[semipar_df['uid'] == gen * 23 + solution_idx]
+        dist_data = semipar_df[semipar_df['uid'] == gen * 24 + solution_idx]
         nTg_idx = dist_data[dist_data[0] == 'nTg'].index
         Tg_idx = dist_data[dist_data[0] == 'Tg'].index
         summ = 0
@@ -372,20 +377,24 @@ class GA_pipeline:
 
 
     def run_GA(self):
-        in_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
+        in_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",").iloc[-24:]
         ini_pop = in_pop_df[['fa_threshold', 'turning_angle', 'step_size', 'min_length', 'max_length']].to_numpy()
         ga_instance = pygad.GA(num_generations=self.ngen,
                                num_parents_mating=self.num_parents_mating,
                                num_genes=self.num_genes,
                                fitness_func=self.fitness_function,
+                               on_start = self.on_start,
                                parent_selection_type="sss",
                                crossover_type="scattered",
                                gene_space=self.gene_space,
+                               gene_type=self.gene_type,
                                on_generation=self.on_generation,
                                on_mutation=self.on_mutation,
                                initial_population=ini_pop,
-                               mutation_num_genes=2,# initial population
-                               mutation_type="random")
+                               mutation_num_genes=2,  # initial population
+                               mutation_type="random",
+                               keep_elitism = 0,
+                               keep_parents=0)
         ga_instance.run()
         ga_instance.plot_fitness()
 
@@ -413,12 +422,14 @@ exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivi
                   "connectivity", "connectivity_output"]
 num_parents_mating = 5
 
-gene_space = [np.linspace(0, 0.7, 10), [15, 25, 35, 45], np.linspace(0.01, 0.05, 5),
-              np.linspace(0.1, 5, 5), np.linspace(10, 200, 10)]
+gene_space = [{'low':1, 'high':70}, [15, 25, 35, 45], {'low':0.01, 'high':0.05},
+              {'low':0.1, 'high':5}, {'low':10, 'high':200}]
+
+gene_type = [int, int, float, float, int]
 
 new_search = GA_pipeline(ngen=ngen, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
                          dsi_studio=dsi_studio, exclusion_list=exclusion_list, num_parents_mating=num_parents_mating,
-                         gene_space=gene_space)
+                         gene_space=gene_space,gene_type=gene_type)
 
-#new_search.make_dataframe(generation=1)
+
 new_search.run_GA()
