@@ -23,6 +23,7 @@ import scipy.io as scio
 # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
 # otsu_threshold [0.3, 1.2]
 DEBUG = True
+CLUSTER = True
 SOL_PER_GENERATION = 24
 if DEBUG:
     SOL_PER_GENERATION = 3
@@ -41,11 +42,18 @@ class GA_pipeline:
         self.output_dir_base = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "genetic_parameter_sets")
         if DEBUG:
             self.output_dir_base = "B:/ProjectSpace/vc144/{}/debug_test_08-11-2024/{}".format(self.project_code, "genetic_parameter_sets")
-        self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
         self.archive_dir = "A:/{}/research".format(self.project_code)
         self.src_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "src")
         self.fib_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "fib")
         self.ngen = ngen
+        if CLUSTER:
+            self.output_dir_base = "/privateShares/hmm56/{}/debug_test_08-11-2024/genetic_parameter_sets".format(self.project_code)
+            # currently the src folder does not exist, do not think it matters
+            self.src_dir = "/privateShares/hmm56/{}/src".format(self.project_code)
+            self.fib_dir = "/privateShares/hmm56/{}/fib".format(self.project_code)
+            self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code) 
+        self.bash_wrapper_dsi_studio_dir = "{}/../bash_wrapper_dsi_studio".format(self.output_dir_base)
+        self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
         self.num_parents_mating = num_parents_mating
         self.sol_per_pop = sol_per_pop
         self.num_genes = 5
@@ -78,6 +86,23 @@ class GA_pipeline:
         return s
 
 
+    def make_cluster_command(self, cmd, job_name, memory="40G"):
+        # this will convert a command to a cluster command
+            # this is done either by srun --mem $cmd to immediately run a command
+            # or sbatch --mem path/to/scrp.bash to schedule the command to run whenever
+        # and then save that command to a bash file along with #!bash
+        # returns the sbatch command
+        #cmd = "srun --mem={} {}".format(memory, cmd)
+        bash_wrapper = "{}/{}-{}.bash".format(self.bas_wrapper_dsi_studio_dir, job_name, time.time())
+
+        with open(bash_wrapper, "w") as f:
+            f.write("#!/usr/bin/env bash")
+            f.write(cmd)
+        return "sbatch --mem={} {}".format(memory, bash_wrapper)
+
+
+
+
     def find_vol_pct_threshold(self, image, percent):
         nifti = nib.load(image)
         data, header = nifti.get_fdata(), nifti.header
@@ -101,6 +126,7 @@ class GA_pipeline:
         sol_dic = dict(zip(solution_keys, sol))
         experiment_list.update(sol_dic)'''
         count = 0
+        cmds = []
         for experiment in experiment_list:
             if self.debug:
                 count += 1
@@ -112,23 +138,37 @@ class GA_pipeline:
                 output_dir = "{}/{}".format(experiment_dir, runno)
                 if not os.path.exists(output_dir):
                     os.mkdir(output_dir)
-                label_file = "{}/connectome{}dsi_studio/labels/RCCF/{}_RCCF_labels.nii.gz".format(self.archive_dir, runno,
-                                                                                                  runno)
+                # i was having archive connection troubles on the cluster, so I just loaded in the labels file to a local directory
+                # labels (i think) is all that was needed from the archive for this
+                #label_file = "{}/connectome{}dsi_studio/labels/RCCF/{}_RCCF_labels.nii.gz".format(self.archive_dir, runno, runno)
+                label_file = "{}/{}_RCCF_labels.nii.gz".format(self.label_dir, runno)
                 fib_file = "{}/nii4D_{}.src.gz.gqi.0.9.fib.gz".format(self.fib_dir, runno)
                 qa_file = "{}/nii4D_{}.src.gz.gqi.0.9.fib.gz.qa.nii.gz".format(self.fib_dir, runno)
-
                 # check for completion by looking for any trk file in the outputs folder
                 found_trk = glob.glob("{}/*.trk.gz".format(output_dir))
                 found_tt = glob.glob("{}/*.tt.gz".format(output_dir))
                 if len(found_trk) > 0 or len(found_tt) > 0:
                     print("work already complete for experiment {} runno {}".format(experiment["uid"], runno))
                     continue
-
                 cmd = self.setup_dsi_studio_trk_call(experiment, fib_file, qa_file, label_file, output_dir)
-                subprocess.run(cmd, shell=True)
+                if CLUSTER:
+                    # then we make a list of commands to be scheduled
+                    # make a list and schedule them together because easier to be able to wait for all these jobs as a group
+                    # that way we know when ready to go on to omni-manova
+                    cmd = self.make_cluster_command(cmd)
+                    cmds.append(cmd)
+                else:
+                    subprocess.run(cmd, shell=True)
             with open('{}/experiment.json'.format(experiment_dir), 'w') as fp:
                 json.dump(experiment, fp)
-            exit_codes = [p.wait() for p in process_list]
+            # i forget what these exit codes are for
+            #exit_codes = [p.wait() for p in process_list]
+        if CLUSTER:
+            # now handle all the jobs
+            for cmd in cmds:
+                print(cmd)
+        quit()
+
 
 
     def run_omnimanova(self, gen):
@@ -178,7 +218,10 @@ class GA_pipeline:
         csv_table = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
         experiment_list = csv_table.to_dict(orient='records')
 
-        df_template_path = "B:/ProjectSpace/vc144/connectome_parameter_search/other/20.5xfad.01_dataframe_template.csv"
+        # platform agnostic (i hope)
+        df_template_path = "{}/other/{}_dataframe_template.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
+        print(df_template_path)
+        quit()
         reader = csv.DictReader(open(df_template_path))
         df_template = {}
         for row in reader:
@@ -376,6 +419,7 @@ class GA_pipeline:
             # this is a BAD state, as you should already have one generation of manual omni manova results to prime
             # the algorithm. is required for the first round of fitness calculations,
             print("no omni manova results found. BAD STATE. you need a manual first generation from which we calculate initial fitness values for")
+            print("search_dir was {}".format(self.omni_manova_dir_base))
             quit()
 
         # we are checking if everything that is in our current experiment list CSV file is accounted for.
@@ -511,14 +555,19 @@ class GA_pipeline:
 # otsu_threshold [0.3, 1.2]
 
 ngen = 1
-experiment_table_path = "B:/ProjectSpace/vc144/20.5xfad.01/debug_test_08-11-2024/genetic_initial_population.csv"
 project_code = "20.5xfad.01"
 runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
               'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
               'N60206NLSAM', 'N60208NLSAM', 'N60213NLSAM', 'N60215NLSAM', 'N60727NLSAM']
 debug = False
 # citrix computer dependent
-dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
+if CLUSTER: 
+    dsi_studio = "/cm/shared/workstation/aux/dsi_studio_2024-08-14/dsi_studio" 
+    experiment_table_path = "/privateShares/hmm56/20.5xfad.01/debug_test_08-11-2024/genetic_initial_population.csv"
+else:
+    dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
+    experiment_table_path = "B:/ProjectSpace/vc144/20.5xfad.01/debug_test_08-11-2024/genetic_initial_population.csv"
+
 
 exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
                   "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
