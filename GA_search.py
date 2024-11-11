@@ -51,6 +51,7 @@ class GA_pipeline:
             # currently the src folder does not exist, do not think it matters
             self.src_dir = "/privateShares/hmm56/{}/src".format(self.project_code)
             self.fib_dir = "/privateShares/hmm56/{}/fib".format(self.project_code)
+            self.label_dir = "/privateShares/hmm56/{}/labels".format(self.project_code)
             self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code) 
         self.bash_wrapper_dsi_studio_dir = "{}/../bash_wrapper_dsi_studio".format(self.output_dir_base)
         self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
@@ -93,7 +94,7 @@ class GA_pipeline:
         # and then save that command to a bash file along with #!bash
         # returns the sbatch command
         #cmd = "srun --mem={} {}".format(memory, cmd)
-        bash_wrapper = "{}/{}-{}.bash".format(self.bas_wrapper_dsi_studio_dir, job_name, time.time())
+        bash_wrapper = "{}/{}-{}.bash".format(self.bash_wrapper_dsi_studio_dir, job_name, time.time())
 
         with open(bash_wrapper, "w") as f:
             f.write("#!/usr/bin/env bash")
@@ -155,18 +156,28 @@ class GA_pipeline:
                     # then we make a list of commands to be scheduled
                     # make a list and schedule them together because easier to be able to wait for all these jobs as a group
                     # that way we know when ready to go on to omni-manova
-                    cmd = self.make_cluster_command(cmd)
-                    cmds.append(cmd)
-                else:
-                    subprocess.run(cmd, shell=True)
+                    job_name = "connectome_{}_exp-{}".format(runno, experiment["uid"])
+                    cmd = self.make_cluster_command(cmd, job_name)
+                cmds.append(cmd)
             with open('{}/experiment.json'.format(experiment_dir), 'w') as fp:
                 json.dump(experiment, fp)
             # i forget what these exit codes are for
             #exit_codes = [p.wait() for p in process_list]
-        if CLUSTER:
             # now handle all the jobs
-            for cmd in cmds:
-                print(cmd)
+            if CLUSTER:
+                print("sleeping 5 seconds to ensure all bash stub files are created")
+                time.sleep(5)
+                print("running all via sbatch")
+                print(cmds)
+                procs = [subprocess.Popen(cmd.split(" ")) for cmd in cmds]
+                # this should wait for all of the processes to finish
+                # though i fear they will "finish" as soon as they are scheduled
+                for p in procs:
+                    p.wait()
+            else:
+                for cmd in cmds:
+                    subprocess.run(cmd, shell=True)
+        print("all processes complete")
         quit()
 
 
@@ -220,8 +231,6 @@ class GA_pipeline:
 
         # platform agnostic (i hope)
         df_template_path = "{}/other/{}_dataframe_template.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
-        print(df_template_path)
-        quit()
         reader = csv.DictReader(open(df_template_path))
         df_template = {}
         for row in reader:
@@ -466,7 +475,7 @@ class GA_pipeline:
             print("DSI generations completed (count): {}".format(dsi_gens_completed))
         else:
             print("DSI Studio results not complete, but some have been done")
-            dsi_gens_completed = count / SOL_PER_GENERATION
+            dsi_gens_completed = count / SOL_PER_GENERATION / len(self.runno_list)
             print("completed {} out of expected {} full generations".format(dsi_gens_completed, len(experiment_list)/SOL_PER_GENERATION))
             # convert to int to truncate it, we don't care about the fractionally complete gen, must redo (will only regenerate incompleted ones)
         dsi_gens_completed = int(dsi_gens_completed)
