@@ -348,8 +348,108 @@ class GA_pipeline:
         print("Completed DSI Studio and OmniManova runs for generation {}".format(current_gen))
 
     def on_start(self, ga_instance):
-        pass
+        # code will search for improvements to this by checking what is already completed
+        ga_instance.generations_completed = 0
+        # this should check where we currently are and try to restart the algorithm from that point
+        # do a "generation search" by seeing how many Omni-Manovas have been done
+        found_omni_results = glob.glob("{}/Omni_Manova-*".format(self.omni_manova_dir_base))
+        #last_omni = found_omni_results[-1].replace("\\", "/")
+        #print(last_omni)
+        omni_done = False
+        omni_gens_completed = 0
+        last_omni_gen_completed = 0
+        for omni_result in reversed(found_omni_results):
+            omni_result = omni_result.replace("\\", "/")
+            # check to make sure that it finished by looking for the Semipar file. this is needed to calculate fitness
+            found_semipar = glob.glob("{}/BrainScaled_Omni_Manova/*/Global_Semipar_Image_0000.mat".format(omni_result))
+            if len(found_semipar) > 0:
+                omni_done = True
+                # calculate what generation this is from the omni result path
+                last_omni_gen_completed = omni_result.split("-")[-1]
+                omni_gens_completed = int(last_omni_gen_completed) + 1
+                print("last omni manova gen completed  = {}".format(last_omni_gen_completed))
+                print("omni generations completed (count): {}".format(omni_gens_completed))
+                break
+        if not omni_done:
+            # TODO: setup so that it will just run omni manova for the experiments that already have dsi studio results
+            # this is a BAD state, as you should already have one generation of manual omni manova results to prime
+            # the algorithm. is required for the first round of fitness calculations,
+            print("no omni manova results found. BAD STATE. you need a manual first generation from which we calculate initial fitness values for")
+            quit()
+
+        # we are checking if everything that is in our current experiment list CSV file is accounted for.
+        # do we need to run DSI studio again before running on_mutation?
+        print("checking for dsi_studio results completion")
+        # get the list of experiments to check for (similar to on_mutation())
+        initial_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
+        experiment_list = initial_pop_df.to_dict(orient='records')
+
+        # check that the results are completed (similar to run_dsi_studio())
+        dsi_studio_complete = True
+        count = 0
+        for experiment in experiment_list:
+            experiment_dir = "{}/{}".format(self.output_dir_base, experiment["uid"])
+            if not os.path.exists(experiment_dir):
+                # then the results are not complete yet
+                print("DSI Studio results not complete for experiment {}".format(experiment["uid"]))
+                dsi_studio_complete = False
+                break
+            for runno in self.runno_list:
+                output_dir = "{}/{}".format(experiment_dir, runno)
+                if not os.path.exists(output_dir):
+                    # then the results are not complete yet
+                    print("DSI Studio results not complete for experiment {} runno {}".format(experiment["uid"], runno))
+                    dsi_studio_complete = False
+                    break
+                # check for completion by looking for any trk file in the outputs folder
+                found_trk = glob.glob("{}/*.trk.gz".format(output_dir))
+                found_tt = glob.glob("{}/*.tt.gz".format(output_dir))
+                if len(found_trk) > 0 or len(found_tt) > 0:
+                    # work is completed. congrats
+                    count += 1
+                else:
+                    # then the results are not complete yet
+                    print("DSI Studio results not complete for experiment {} runno {}".format(experiment["uid"], runno))
+                    dsi_studio_complete = False
+                    break
+
+        # count how many generations were completed by DSI Studio/
+        dsi_gens_completed = 0
+        if dsi_studio_complete:
+            print("all DSI studio results complete for the existing inputs in {}".format(self.experiment_table_path))
+            # count how many generations were completed by DSI Studio/the experiment list
+            dsi_gens_completed = len(experiment_list) / SOL_PER_GENERATION
+            print("DSI generations completed (count): {}".format(dsi_gens_completed))
+        else:
+            print("DSI Studio results not complete, but some have been done")
+            dsi_gens_completed = count / SOL_PER_GENERATION
+            print("completed {} out of expected {} full generations".format(dsi_gens_completed, len(experiment_list)/SOL_PER_GENERATION))
+            # convert to int to truncate it, we don't care about the fractionally complete gen, must redo (will only regenerate incompleted ones)
+        dsi_gens_completed = int(dsi_gens_completed)
+
+
+        # now with the given information about what is complete, make decision about where to start
+        if omni_gens_completed < dsi_gens_completed:
+            print("DSI results complete, but omni results are beind one generation. running omni manova-{} to catch up, then will continue the main algorithm".format(dsi_gens_completed))
+            # TODO: this currently makes the assumption that this case will always be:
+                # omni_gens_completed = dsi_gens_completed - 1
+            # then we need to catch up by running make dataframe and omni manova
+            # we can then update the generation and start the algorithm
+            ga_instance.generations_completed = omni_gens_completed
+            self.make_dataframe(dsi_gens_completed - 1)
+            self.run_omnimanova(dsi_gens_completed - 1)
+            ga_instance.generations_completed = dsi_gens_completed
+
+        if omni_gens_completed == dsi_gens_completed:
+            # then no pre-work needs to be done, just set the current generation and go on to main algorithm
+            print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed))
+            ga_instance.generations_completed = dsi_gens_completed
+
+
+        quit()
         # ga_instance.generations_completed = 2
+
+
     def fitness_function(self, ga_instance, solution, solution_idx):
         # not sure where to put this dict...
         # here for now. it is used to give MDS_data valid names
