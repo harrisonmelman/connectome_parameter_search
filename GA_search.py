@@ -22,7 +22,9 @@ import scipy.io as scio
 # turning_angle [15, 60]
 # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
 # otsu_threshold [0.3, 1.2]
-
+DEBUG = True
+if DEBUG:
+    SOL_PER_GENERATION = 3 # 24
 
 class GA_pipeline:
     def __init__(self, ngen, experiment_table_path,
@@ -36,6 +38,9 @@ class GA_pipeline:
         self.runno_list = runno_list
         self.experiment_table_path = experiment_table_path
         self.output_dir_base = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "genetic_parameter_sets")
+        if DEBUG:
+            self.output_dir_base = "B:/ProjectSpace/vc144/{}/debug_test_08-11-2024/{}".format(self.project_code, "genetic_parameter_sets")
+        self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
         self.archive_dir = "A:/{}/research".format(self.project_code)
         self.src_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "src")
         self.fib_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "fib")
@@ -126,8 +131,8 @@ class GA_pipeline:
 
 
     def run_omnimanova(self, gen):
-        out_dir = "B:/ProjectSpace/vc144/{}/genetic_search/Omni_Manova-{}".format(self.project_code, gen)
-        data_frame_path = out_dir+"/dataframe.csv"
+        out_dir = "{}/Omni_Manova-{}".format(self.omni_manova_dir_base, gen)
+        data_frame_path = "{}/dataframe.csv".format(out_dir)
         mat_script_template = "C:/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
         mat_script = "C:/workstation/code/analysis/Omni_Manova/Run_File/prototype_run_from_python.m"
         test_criteria = "{{'group1','group2','subgroup02','subgroup03', 'subgroup04', 'subgroup05','subgroup06','subgroup07','subgroup08','subgroup09','subgroup10','subgroup11','subgroup12'}}"
@@ -135,8 +140,7 @@ class GA_pipeline:
         timestamp = time.time()
         log_file = "{}/omni_manova_{}.log".format(out_dir, timestamp)
         Path(log_file).touch()
-        N = 10
-        completion_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=N))
+        completion_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
         with open(mat_script, 'w') as f:
             with open(mat_script_template, 'r') as old_f:
                 old = old_f.read()
@@ -166,7 +170,7 @@ class GA_pipeline:
 
 
     def make_dataframe(self, generation):
-        output_dir = "B:/ProjectSpace/vc144/{}/genetic_search/Omni_Manova-{}".format(self.project_code, generation)
+        output_dir = "{}/Omni_Manova-{}".format(self.omni_manova_dir_base, generation)
         #date = datetime.today().strftime('%Y-%m-%d')
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
@@ -192,7 +196,7 @@ class GA_pipeline:
         # we only want to take experiments from the current (nth) and the immediately previous (n-1) generation to run omni-manova on
         # and we know (by our definition) that each generation has 24 experiments
         if generation >0:
-          generation_start_index = 24*(generation-1)
+          generation_start_index = SOL_PER_GENERATION*(generation-1)
         else:
           generation_start_index = 0
 
@@ -323,10 +327,10 @@ class GA_pipeline:
         # modify the initial_population csv file
         initial_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
         # copies the previous generation into a new dataframe that will represent the newly created solution space (previous gen plus current gen to be created)
-        current_sol_df = initial_pop_df.iloc[:24].copy()  # make a new solution df
+        current_sol_df = initial_pop_df.iloc[:SOL_PER_GENERATION].copy()  # make a new solution df
         # this increments up the UID of the previous generation, not what we need to do.
         # the previous generation should keep their numbers, and the new generation should be thusly named
-        current_sol_df['uid'] = (24*(current_gen)) + current_sol_df['uid']
+        current_sol_df['uid'] = (SOL_PER_GENERATION*(current_gen)) + current_sol_df['uid']
         keys = current_sol_df.columns.tolist()
         solution_keys = keys[3:8]  # modify accordingly
         current_sol_df[solution_keys] = current_sol
@@ -344,7 +348,8 @@ class GA_pipeline:
         print("Completed DSI Studio and OmniManova runs for generation {}".format(current_gen))
 
     def on_start(self, ga_instance):
-        ga_instance.generations_completed = 2
+        pass
+        # ga_instance.generations_completed = 2
     def fitness_function(self, ga_instance, solution, solution_idx):
         # not sure where to put this dict...
         # here for now. it is used to give MDS_data valid names
@@ -353,7 +358,7 @@ class GA_pipeline:
         # read in global MDS results as a pandas dataframe
         # it will have cryptic column names
         # want to redefine it
-        Semipar_path = "B:/ProjectSpace/vc144/{}/genetic_search/Omni_Manova-{}/BrainScaled_Omni_Manova/*/Global_Semipar_Image_0000.mat".format(self.project_code, gen)
+        Semipar_path = "{}/Omni_Manova-{}/BrainScaled_Omni_Manova/*/Global_Semipar_Image_0000.mat".format(self.omni_manova_dir_base, gen)
         print(Semipar_path)
         Semipar_path = glob.glob(Semipar_path)
         Semipar_path = Semipar_path[0]
@@ -363,7 +368,7 @@ class GA_pipeline:
         semipar_df = pd.DataFrame(cleaned_semipar)
         uids = [(i // 17) for i in range(len(cleaned_semipar))]
         semipar_df['uid'] = uids
-        dist_data = semipar_df[semipar_df['uid'] == gen * 24 + solution_idx]
+        dist_data = semipar_df[semipar_df['uid'] == gen * SOL_PER_GENERATION + solution_idx]
         nTg_idx = dist_data[dist_data[0] == 'nTg'].index
         Tg_idx = dist_data[dist_data[0] == 'Tg'].index
         summ = 0
@@ -377,7 +382,7 @@ class GA_pipeline:
 
 
     def run_GA(self):
-        in_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",").iloc[-24:]
+        in_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",").iloc[-SOL_PER_GENERATION:]
         ini_pop = in_pop_df[['fa_threshold', 'turning_angle', 'step_size', 'min_length', 'max_length']].to_numpy()
         ga_instance = pygad.GA(num_generations=self.ngen,
                                num_parents_mating=self.num_parents_mating,
@@ -407,20 +412,20 @@ class GA_pipeline:
 # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
 # otsu_threshold [0.3, 1.2]
 
-ngen = 5
-experiment_table_path = "B:/ProjectSpace/vc144/connectome_parameter_search/genetic_initial_population_.csv"
+ngen = 1
+experiment_table_path = "B:/ProjectSpace/vc144/20.5xfad.01/debug_test_08-11-2024/genetic_initial_population.csv"
 project_code = "20.5xfad.01"
 runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
               'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
               'N60206NLSAM', 'N60208NLSAM', 'N60213NLSAM', 'N60215NLSAM', 'N60727NLSAM']
 debug = False
-# citrix compuer dependent
+# citrix computer dependent
 dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
 
 exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
                   "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
                   "connectivity", "connectivity_output"]
-num_parents_mating = 5
+num_parents_mating = 3
 
 gene_space = [{'low':1, 'high':70}, [15, 25, 35, 45], {'low':0.01, 'high':0.05},
               {'low':0.1, 'high':5}, {'low':10, 'high':200}]
