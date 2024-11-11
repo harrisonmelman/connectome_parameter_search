@@ -275,9 +275,7 @@ class GA_pipeline:
                 # i think that omni manova currently only accepts a single connectome file
                 c_value = "count"
                 c_type = "pass"
-                found_connectivity_file = glob.glob(
-                    "B:/ProjectSpace/vc144/{}/genetic_parameter_sets/{}/{}/*_labels.count.pass.connectivity.mat".format(
-                        project_code, experiment_number, runno))
+                found_connectivity_file = glob.glob("{}/{}/{}/*_labels.count.pass.connectivity.mat".format(self.output_dir_base, experiment_number, runno))
                 if len(found_connectivity_file) == 0:
                     print(
                         "no connectivity found, i think this is the end of currently acquired data experiment:{} runno:{}".format(
@@ -397,13 +395,14 @@ class GA_pipeline:
         # this should check where we currently are and try to restart the algorithm from that point
         # do a "generation search" by seeing how many Omni-Manovas have been done
         found_omni_results = glob.glob("{}/Omni_Manova-*".format(self.omni_manova_dir_base))
-        #last_omni = found_omni_results[-1].replace("\\", "/")
-        #print(last_omni)
+        # important to sort because the result is not guaranteed to come back already sorted
+        found_omni_results.sort()
         omni_done = False
         omni_gens_completed = 0
         last_omni_gen_completed = 0
         for omni_result in reversed(found_omni_results):
             omni_result = omni_result.replace("\\", "/")
+            print("searching for omni_results in: {}".format(omni_result))
             # check to make sure that it finished by looking for the Semipar file. this is needed to calculate fitness
             found_semipar = glob.glob("{}/BrainScaled_Omni_Manova/*/Global_Semipar_Image_0000.mat".format(omni_result))
             if len(found_semipar) > 0:
