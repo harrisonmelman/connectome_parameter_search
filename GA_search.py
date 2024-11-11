@@ -23,8 +23,9 @@ import scipy.io as scio
 # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
 # otsu_threshold [0.3, 1.2]
 DEBUG = True
+SOL_PER_GENERATION = 24
 if DEBUG:
-    SOL_PER_GENERATION = 3 # 24
+    SOL_PER_GENERATION = 3
 
 class GA_pipeline:
     def __init__(self, ngen, experiment_table_path,
@@ -435,19 +436,16 @@ class GA_pipeline:
                 # omni_gens_completed = dsi_gens_completed - 1
             # then we need to catch up by running make dataframe and omni manova
             # we can then update the generation and start the algorithm
-            ga_instance.generations_completed = omni_gens_completed
             self.make_dataframe(dsi_gens_completed - 1)
             self.run_omnimanova(dsi_gens_completed - 1)
-            ga_instance.generations_completed = dsi_gens_completed
+            # TODO: make better names because the indexing here is kind of confusing
+            # confusion was that the initial generation 0 doesn't count (bc was manually made and not made by the genetic algo)
+            ga_instance.generations_completed = dsi_gens_completed - 1
 
         if omni_gens_completed == dsi_gens_completed:
             # then no pre-work needs to be done, just set the current generation and go on to main algorithm
-            print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed))
-            ga_instance.generations_completed = dsi_gens_completed
-
-
-        quit()
-        # ga_instance.generations_completed = 2
+            print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed-1))
+            ga_instance.generations_completed = dsi_gens_completed - 1
 
 
     def fitness_function(self, ga_instance, solution, solution_idx):
