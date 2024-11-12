@@ -97,7 +97,7 @@ class GA_pipeline:
         bash_wrapper = "{}/{}-{}.bash".format(self.bash_wrapper_dsi_studio_dir, job_name, time.time())
 
         with open(bash_wrapper, "w") as f:
-            f.write("#!/usr/bin/env bash")
+            f.write("#!/usr/bin/env bash\n")
             f.write(cmd)
         return "sbatch --mem={} {}".format(memory, bash_wrapper)
 
