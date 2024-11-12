@@ -62,7 +62,8 @@ class GA_pipeline:
         self.gene_type = gene_type
         # on CTX04, where this will be ran
         self.matlab = "C:/CIVM_Apps/MATLAB/R2021b/bin/matlab.exe"
-
+        if CLUSTER:
+            self.matlab = "/cm/shared/apps/MATLAB/R2021b/bin/matlab" 
 
 
     def setup_dsi_studio_trk_call(self, experiment: dict, fib_file, qa_nifti_file, label_file, output_dir):
@@ -170,15 +171,13 @@ class GA_pipeline:
                 print("running all via sbatch")
                 print(cmds)
                 procs = [subprocess.Popen(cmd.split(" ")) for cmd in cmds]
-                # this should wait for all of the processes to finish
-                # though i fear they will "finish" as soon as they are scheduled
+                # this will return when all jobs are scheduled. must be smarter about checking when all jobs are actually done
                 for p in procs:
                     p.wait()
             else:
                 for cmd in cmds:
                     subprocess.run(cmd, shell=True)
-        print("all processes complete")
-        quit()
+        print("done scheduling DSI Studio calls")
 
 
 
@@ -187,6 +186,9 @@ class GA_pipeline:
         data_frame_path = "{}/dataframe.csv".format(out_dir)
         mat_script_template = "C:/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
         mat_script = "C:/workstation/code/analysis/Omni_Manova/Run_File/prototype_run_from_python.m"
+        if CLUSTER:
+            mat_script_template="/cm/shared/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
+            mat_script="/cm/shared/workstation/code/analysis/Omni_Manova/Run_File/prototype_run_from_python.m"
         test_criteria = "{{'group1','group2','subgroup02','subgroup03', 'subgroup04', 'subgroup05','subgroup06','subgroup07','subgroup08','subgroup09','subgroup10','subgroup11','subgroup12'}}"
 
         timestamp = time.time()
@@ -210,7 +212,8 @@ class GA_pipeline:
         cmd = "{} -nosplash -nodisplay -nodesktop -r {} -logfile {}".format(self.matlab, cmd, log_file)
 
         print(cmd)
-        p = subprocess.Popen(cmd)
+        quit()
+        p = subprocess.Popen(cmd.split(" "))
 
         with open(log_file, 'r') as f:
             while True:
@@ -231,6 +234,8 @@ class GA_pipeline:
 
         # platform agnostic (i hope)
         df_template_path = "{}/other/{}_dataframe_template.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
+        if CLUSTER:
+             df_template_path = "{}/other/{}_dataframe_cluster_template.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
         reader = csv.DictReader(open(df_template_path))
         df_template = {}
         for row in reader:
@@ -466,6 +471,41 @@ class GA_pipeline:
                     dsi_studio_complete = False
                     break
 
+        # try to run dsi studio again, then check for completion after that
+        if not dsi_studio_complete:
+            # then try to run it
+            self.run_dsi_studio(experiment_list)
+            # check for completion a second time
+            dsi_studio_complete = True
+            count = 0
+            for experiment in experiment_list:
+                experiment_dir = "{}/{}".format(self.output_dir_base, experiment["uid"])
+                if not os.path.exists(experiment_dir):
+                    # then the results are not complete yet
+                    print("DSI Studio results not complete for experiment {}".format(experiment["uid"]))
+                    dsi_studio_complete = False
+                    break
+                for runno in self.runno_list:
+                    output_dir = "{}/{}".format(experiment_dir, runno)
+                    if not os.path.exists(output_dir):
+                        # then the results are not complete yet
+                        print("DSI Studio results not complete for experiment {} runno {}".format(experiment["uid"], runno))
+                        dsi_studio_complete = False
+                        break
+                    # check for completion by looking for any trk file in the outputs folder
+                    found_trk = glob.glob("{}/*.trk.gz".format(output_dir))
+                    found_tt = glob.glob("{}/*.tt.gz".format(output_dir))
+                    if len(found_trk) > 0 or len(found_tt) > 0:
+                        # work is completed. congrats
+                        count += 1
+                    else:
+                        # then the results are not complete yet
+                        print("DSI Studio results not complete for experiment {} runno {}".format(experiment["uid"], runno))
+                        dsi_studio_complete = False
+                        break
+
+
+        
         # count how many generations were completed by DSI Studio/
         dsi_gens_completed = 0
         if dsi_studio_complete:
@@ -498,6 +538,7 @@ class GA_pipeline:
             # then no pre-work needs to be done, just set the current generation and go on to main algorithm
             print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed-1))
             ga_instance.generations_completed = dsi_gens_completed - 1
+        quit()
 
 
     def fitness_function(self, ga_instance, solution, solution_idx):
