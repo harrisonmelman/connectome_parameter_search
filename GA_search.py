@@ -54,6 +54,7 @@ class GA_pipeline:
             self.label_dir = "/privateShares/hmm56/{}/labels".format(self.project_code)
             self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code) 
         self.bash_wrapper_dsi_studio_dir = "{}/../bash_wrapper_dsi_studio".format(self.output_dir_base)
+        self.bash_wrapper_omni_manova_dir = "{}/../bash_wrapper_omni_manova".format(self.output_dir_base)
         self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
         self.num_parents_mating = num_parents_mating
         self.sol_per_pop = sol_per_pop
@@ -61,9 +62,13 @@ class GA_pipeline:
         self.gene_space = gene_space
         self.gene_type = gene_type
         # on CTX04, where this will be ran
-        self.matlab = "C:/CIVM_Apps/MATLAB/R2021b/bin/matlab.exe"
+        self.matlab = "C:/CIVM_Apps/MATLAB/R2021b/bin/matlab"
         if CLUSTER:
-            self.matlab = "/cm/shared/apps/MATLAB/R2021b/bin/matlab" 
+            #self.matlab = "/cm/shared/apps/MATLAB/R2021b/bin/matlab" 
+            self.matlab = "matlab"
+
+        # this SHOULD just work
+        self.matlabb = "matlab"
 
 
     def setup_dsi_studio_trk_call(self, experiment: dict, fib_file, qa_nifti_file, label_file, output_dir):
@@ -88,14 +93,14 @@ class GA_pipeline:
         return s
 
 
-    def make_cluster_command(self, cmd, job_name, memory="40G"):
+    def make_cluster_command(self, cmd, out_dir, job_name, memory="40G"):
         # this will convert a command to a cluster command
             # this is done either by srun --mem $cmd to immediately run a command
             # or sbatch --mem path/to/scrp.bash to schedule the command to run whenever
         # and then save that command to a bash file along with #!bash
         # returns the sbatch command
         #cmd = "srun --mem={} {}".format(memory, cmd)
-        bash_wrapper = "{}/{}-{}.bash".format(self.bash_wrapper_dsi_studio_dir, job_name, time.time())
+        bash_wrapper = "{}/{}-{}.bash".format(out_dir, job_name, time.time())
 
         with open(bash_wrapper, "w") as f:
             f.write("#!/usr/bin/env bash\n")
@@ -158,41 +163,59 @@ class GA_pipeline:
                     # make a list and schedule them together because easier to be able to wait for all these jobs as a group
                     # that way we know when ready to go on to omni-manova
                     job_name = "connectome_{}_exp-{}".format(runno, experiment["uid"])
-                    cmd = self.make_cluster_command(cmd, job_name)
+                    cmd = self.make_cluster_command(cmd, self.bash_wrapper_dsi_studio_dir, job_name)
                 cmds.append(cmd)
             with open('{}/experiment.json'.format(experiment_dir), 'w') as fp:
                 json.dump(experiment, fp)
             # i forget what these exit codes are for
             #exit_codes = [p.wait() for p in process_list]
-            # now handle all the jobs
-            if CLUSTER:
-                print("sleeping 5 seconds to ensure all bash stub files are created")
-                time.sleep(5)
-                print("running all via sbatch")
-                print(cmds)
-                procs = [subprocess.Popen(cmd.split(" ")) for cmd in cmds]
-                # this will return when all jobs are scheduled. must be smarter about checking when all jobs are actually done
-                for p in procs:
-                    p.wait()
-            else:
-                for cmd in cmds:
-                    subprocess.run(cmd, shell=True)
+        # now handle all the jobs
+        if CLUSTER:
+            print("sleeping 5 seconds to ensure all bash stub files are created")
+            time.sleep(5)
+            print("running all via sbatch")
+            print(cmds)
+            job_ids = []
+            for cmd in cmds:
+                proc = subprocess.Popen(cmd.split(" "), stdout=subprocess.PIPE)
+                # stdout is a buffered reader (bytes string)
+                # must first decode it, and then split on spaces to get the last value (the job id)
+                jid = proc.stdout.read().decode("utf-8").split(" ")[-1]
+                # to strip off the trailing newline character
+                jid = jid.strip("\n")
+                print("sbatch job id: {}".format(jid))
+                job_ids.append(jid)
+            
+            # call the pipeline_utilities 'cluster_wait' function, pass it list of slurm ids
+            # turn my job ids list into a space-delimited string
+            job_ids = " ".join(job_ids)
+            cluster_wait_cmd = "pipeline_utilities cluster_wait {}".format(job_ids)
+            print("waiting for dsi studio calls to complete")
+            subprocess.run(cluster_wait_cmd.split(" "))
+        else:
+            for cmd in cmds:
+                subprocess.run(cmd, shell=True)
         print("done scheduling DSI Studio calls")
 
 
 
     def run_omnimanova(self, gen):
+        # TODO: get environment variables using os (or whatever package, maybe sys)
         out_dir = "{}/Omni_Manova-{}".format(self.omni_manova_dir_base, gen)
         data_frame_path = "{}/dataframe.csv".format(out_dir)
         mat_script_template = "C:/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
-        mat_script = "C:/workstation/code/analysis/Omni_Manova/Run_File/prototype_run_from_python.m"
+        run_R_analysis = 1;
         if CLUSTER:
             mat_script_template="/cm/shared/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
             mat_script="/cm/shared/workstation/code/analysis/Omni_Manova/Run_File/prototype_run_from_python.m"
+            run_R_analysis = 0;
         test_criteria = "{{'group1','group2','subgroup02','subgroup03', 'subgroup04', 'subgroup05','subgroup06','subgroup07','subgroup08','subgroup09','subgroup10','subgroup11','subgroup12'}}"
 
         timestamp = time.time()
         log_file = "{}/omni_manova_{}.log".format(out_dir, timestamp)
+        # made a change to ALWAYS USE A UNIQUE matlab stub file. not safe to rewrite and use the same path for everything. likely where omni manova run glitches came from
+        mat_script = "C:/workstation/code/analysis/Omni_Manova/Run_File/auto_generated/run_from_python_{}.m".format(timestamp)
+        Path(mat_script).touch()
         Path(log_file).touch()
         completion_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
         with open(mat_script, 'w') as f:
@@ -205,23 +228,34 @@ class GA_pipeline:
             f.write("test_criteria={};\n".format(test_criteria))
             f.write("log_file='{}';\n".format(log_file))
             f.write("completion_code='{}';\n".format(completion_code))
+            f.write("run_R_analysis='{}';\n".format(run_R_analysis))
             f.write(old)
+            f.write("exit;")
 
+        # TODO: it doesn't actually EXIT matlab after it completes. why is that??
+        # at least when run in testing on master node, matlab completes and then it just sits with the matlab console open
+        # this is NOT IDEAL for if it runs on a node. is it lost for good and frozen?
+        # testing tonight (THURS)
         cmd = "run('{}'); exit;".format(mat_script)
-
         cmd = "{} -nosplash -nodisplay -nodesktop -r {} -logfile {}".format(self.matlab, cmd, log_file)
+        cmd = self.make_cluster_command(cmd, self.bash_wrapper_omni_manova_dir, job_name)
 
         print(cmd)
-        quit()
-        p = subprocess.Popen(cmd.split(" "))
+        proc = subprocess.Popen(cmd.split(" "), stdout=subprocess.PIPE)
+        jid = proc.stdout.read().decode("utf-8").split(" ")[-1]
+        jid = jid.strip("\n")
+        cluster_wait_cmd = "pipeline_utilities cluster_wait {}".format(jid)
+        print("waiting for Omni Manova call to complete")
+        subprocess.run(cluster_wait_cmd.split(" "))
 
-        with open(log_file, 'r') as f:
-            while True:
-                time.sleep(5)
-                if completion_code in f.read():
-                    print("FOUND THE CODE: {}".format(completion_code))
-                    break
-        print("process complete")
+        # i believe is unnecessary now. Correct?? 
+        #with open(log_file, 'r') as f:
+        #    while True:
+        #        time.sleep(5)
+        #        if completion_code in f.read():
+        #            print("FOUND THE CODE: {}".format(completion_code))
+        #            break
+        #print("process complete")
 
 
     def make_dataframe(self, generation):
@@ -235,7 +269,7 @@ class GA_pipeline:
         # platform agnostic (i hope)
         df_template_path = "{}/other/{}_dataframe_template.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
         if CLUSTER:
-             df_template_path = "{}/other/{}_dataframe_cluster_template.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
+             df_template_path = "{}/other/{}_dataframe_template_cluster.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
         reader = csv.DictReader(open(df_template_path))
         df_template = {}
         for row in reader:
@@ -538,8 +572,6 @@ class GA_pipeline:
             # then no pre-work needs to be done, just set the current generation and go on to main algorithm
             print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed-1))
             ga_instance.generations_completed = dsi_gens_completed - 1
-        quit()
-
 
     def fitness_function(self, ga_instance, solution, solution_idx):
         # not sure where to put this dict...
@@ -553,13 +585,24 @@ class GA_pipeline:
         print(Semipar_path)
         Semipar_path = glob.glob(Semipar_path)
         Semipar_path = Semipar_path[0]
+        print("FOUND PATH: {}".format(Semipar_path))
         file = scio.loadmat(Semipar_path) # read semipar file
         cleaned_semipar = [str(item[0]).replace('[', '').replace(']', '').replace("'", "").split() for item in
                         file['full_group_name']]
         semipar_df = pd.DataFrame(cleaned_semipar)
+        print(semipar_df)
         uids = [(i // 17) for i in range(len(cleaned_semipar))]
         semipar_df['uid'] = uids
-        dist_data = semipar_df[semipar_df['uid'] == gen * SOL_PER_GENERATION + solution_idx]
+        print(semipar_df)
+        # TODO: very uncertrain about what gen should be set to, so subtracting one because I get index outofbounds
+        dist_data = semipar_df[semipar_df['uid'] == (gen-1) * SOL_PER_GENERATION + solution_idx]
+        print("DIST DATA")
+        print(dist_data)
+        print("MATHS")
+        print("uid indices: {}".format(gen*SOL_PER_GENERATION+solution_idx) )
+        print("gen {}".format(gen))
+        print("sols: {}".format(SOL_PER_GENERATION))
+        print("sol idx {}".format(solution_idx))
         nTg_idx = dist_data[dist_data[0] == 'nTg'].index
         Tg_idx = dist_data[dist_data[0] == 'Tg'].index
         summ = 0
@@ -567,6 +610,8 @@ class GA_pipeline:
             for j in range(len(nTg_idx)):
                 dist = file['Dist'][i][j]
                 summ += dist
+        print("tg_tdx: {}".format(Tg_idx))
+        print("ntg_tdx: {}".format(nTg_idx))
         fitness1 = summ / (len(Tg_idx) * len(nTg_idx))
         return fitness1
         #return [fitness1, fitness2]
