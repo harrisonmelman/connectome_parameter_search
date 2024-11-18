@@ -27,6 +27,7 @@ CLUSTER = True
 SOL_PER_GENERATION = 24
 if DEBUG:
     SOL_PER_GENERATION = 3
+    SOL_PER_GENERATION = 10
 
 class GA_pipeline:
     def __init__(self, ngen, experiment_table_path,
@@ -42,12 +43,13 @@ class GA_pipeline:
         self.output_dir_base = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "genetic_parameter_sets")
         if DEBUG:
             self.output_dir_base = "B:/ProjectSpace/vc144/{}/debug_test_08-11-2024/{}".format(self.project_code, "genetic_parameter_sets")
+            self.output_dir_base = "B:/ProjectSpace/vc144/{}/debug_test_10-by-25/{}".format(self.project_code, "genetic_parameter_sets")
         self.archive_dir = "A:/{}/research".format(self.project_code)
         self.src_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "src")
         self.fib_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "fib")
         self.ngen = ngen
         if CLUSTER:
-            self.output_dir_base = "/privateShares/hmm56/{}/debug_test_08-11-2024/genetic_parameter_sets".format(self.project_code)
+            self.output_dir_base = "/privateShares/hmm56/{}/debug_test_10-by-25/genetic_parameter_sets".format(self.project_code)
             # currently the src folder does not exist, do not think it matters
             self.src_dir = "/privateShares/hmm56/{}/src".format(self.project_code)
             self.fib_dir = "/privateShares/hmm56/{}/fib".format(self.project_code)
@@ -207,14 +209,14 @@ class GA_pipeline:
         run_R_analysis = 1;
         if CLUSTER:
             mat_script_template="/cm/shared/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
-            mat_script="/cm/shared/workstation/code/analysis/Omni_Manova/Run_File/prototype_run_from_python.m"
             run_R_analysis = 0;
         test_criteria = "{{'group1','group2','subgroup02','subgroup03', 'subgroup04', 'subgroup05','subgroup06','subgroup07','subgroup08','subgroup09','subgroup10','subgroup11','subgroup12'}}"
 
         timestamp = time.time()
+        timestamp = int(timestamp)
         log_file = "{}/omni_manova_{}.log".format(out_dir, timestamp)
         # made a change to ALWAYS USE A UNIQUE matlab stub file. not safe to rewrite and use the same path for everything. likely where omni manova run glitches came from
-        mat_script = "C:/workstation/code/analysis/Omni_Manova/Run_File/auto_generated/run_from_python_{}.m".format(timestamp)
+        mat_script = "{}/run_from_python_{}.m".format(self.bash_wrapper_omni_manova_dir, timestamp)
         Path(mat_script).touch()
         Path(log_file).touch()
         completion_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
@@ -237,8 +239,12 @@ class GA_pipeline:
         # this is NOT IDEAL for if it runs on a node. is it lost for good and frozen?
         # testing tonight (THURS)
         cmd = "run('{}'); exit;".format(mat_script)
+
+        # i need an extra set of quotes around the whole thing printed into the bash wrapper. 
+        #cmd = '"run('{}'); exit;"'.format(mat_script)
+        cmd = "\"run('{}'); exit;\"".format(mat_script)
         cmd = "{} -nosplash -nodisplay -nodesktop -r {} -logfile {}".format(self.matlab, cmd, log_file)
-        cmd = self.make_cluster_command(cmd, self.bash_wrapper_omni_manova_dir, job_name)
+        cmd = self.make_cluster_command(cmd, self.bash_wrapper_omni_manova_dir, "omni_manova-{}".format(gen), "120G")
 
         print(cmd)
         proc = subprocess.Popen(cmd.split(" "), stdout=subprocess.PIPE)
@@ -467,7 +473,9 @@ class GA_pipeline:
             # the algorithm. is required for the first round of fitness calculations,
             print("no omni manova results found. BAD STATE. you need a manual first generation from which we calculate initial fitness values for")
             print("search_dir was {}".format(self.omni_manova_dir_base))
-            quit()
+            self.make_dataframe(0)
+            self.run_omnimanova(0)
+            #quit()
 
         # we are checking if everything that is in our current experiment list CSV file is accounted for.
         # do we need to run DSI studio again before running on_mutation?
@@ -574,9 +582,6 @@ class GA_pipeline:
             ga_instance.generations_completed = dsi_gens_completed - 1
 
     def fitness_function(self, ga_instance, solution, solution_idx):
-        # not sure where to put this dict...
-        # here for now. it is used to give MDS_data valid names
-
         gen = ga_instance.generations_completed
         # read in global MDS results as a pandas dataframe
         # it will have cryptic column names
@@ -591,16 +596,21 @@ class GA_pipeline:
                         file['full_group_name']]
         semipar_df = pd.DataFrame(cleaned_semipar)
         print(semipar_df)
+        # 17 is length of runno list
+        # TODO: make a variable for this. this will break future projects
         uids = [(i // 17) for i in range(len(cleaned_semipar))]
         semipar_df['uid'] = uids
         print(semipar_df)
         # TODO: very uncertrain about what gen should be set to, so subtracting one because I get index outofbounds
-        dist_data = semipar_df[semipar_df['uid'] == (gen-1) * SOL_PER_GENERATION + solution_idx]
+        if gen == 0:
+            # then we only have SOL_PER_GENERATION in total
+            dist_data = semipar_df[semipar_df['uid'] == solution_idx]
+        else:
+            # then we have 2*SOL_PER_GENERATION, but we only care about the final n
+            dist_data = semipar_df[semipar_df['uid'] == SOL_PER_GENERATION + solution_idx]
         print("DIST DATA")
         print(dist_data)
-        print("MATHS")
-        print("uid indices: {}".format(gen*SOL_PER_GENERATION+solution_idx) )
-        print("gen {}".format(gen))
+        print("uid indices: {}".format(SOL_PER_GENERATION+solution_idx) )
         print("sols: {}".format(SOL_PER_GENERATION))
         print("sol idx {}".format(solution_idx))
         nTg_idx = dist_data[dist_data[0] == 'nTg'].index
@@ -648,7 +658,8 @@ class GA_pipeline:
 # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
 # otsu_threshold [0.3, 1.2]
 
-ngen = 1
+# number of generations to run?? why did it run 5 instead of 1?
+ngen = 25
 project_code = "20.5xfad.01"
 runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
               'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
@@ -657,7 +668,7 @@ debug = False
 # citrix computer dependent
 if CLUSTER: 
     dsi_studio = "/cm/shared/workstation/aux/dsi_studio_2024-08-14/dsi_studio" 
-    experiment_table_path = "/privateShares/hmm56/20.5xfad.01/debug_test_08-11-2024/genetic_initial_population.csv"
+    experiment_table_path = "/privateShares/hmm56/20.5xfad.01/debug_test_10-by-25/genetic_initial_population.csv"
 else:
     dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
     experiment_table_path = "B:/ProjectSpace/vc144/20.5xfad.01/debug_test_08-11-2024/genetic_initial_population.csv"
@@ -666,7 +677,7 @@ else:
 exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
                   "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
                   "connectivity", "connectivity_output"]
-num_parents_mating = 3
+num_parents_mating = 5
 
 gene_space = [{'low':1, 'high':70}, [15, 25, 35, 45], {'low':0.01, 'high':0.05},
               {'low':0.1, 'high':5}, {'low':10, 'high':200}]
