@@ -30,47 +30,42 @@ if DEBUG:
     SOL_PER_GENERATION = 10
 
 class GA_pipeline:
-    def __init__(self, ngen, experiment_table_path,
-                 runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type):
+    def __init__(self, ngen, experiment_table_path, runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type, project_code, sol_per_pop):
         # HARRISON ADDED RANDOMLY CHOSEN VALUE (previously unset)
-        sol_per_pop = 5
-        self.project_code = "20.5xfad.01"
+        self.project_code = project_code
         self.debug = debug
-        self.dsi_studio_version = dsi_studio
         self.exclusion_list = exclusion_list
         self.runno_list = runno_list
         self.experiment_table_path = experiment_table_path
-        self.output_dir_base = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "genetic_parameter_sets")
-        if DEBUG:
-            self.output_dir_base = "B:/ProjectSpace/vc144/{}/debug_test_08-11-2024/{}".format(self.project_code, "genetic_parameter_sets")
-            self.output_dir_base = "B:/ProjectSpace/vc144/{}/debug_test_10-by-25/{}".format(self.project_code, "genetic_parameter_sets")
-        self.archive_dir = "A:/{}/research".format(self.project_code)
-        self.src_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "src")
-        self.fib_dir = "B:/ProjectSpace/vc144/{}/{}".format(self.project_code, "fib")
         self.ngen = ngen
-        if CLUSTER:
-            self.output_dir_base = "/privateShares/hmm56/{}/debug_test_10-by-25/genetic_parameter_sets".format(self.project_code)
-            # currently the src folder does not exist, do not think it matters
-            self.src_dir = "/privateShares/hmm56/{}/src".format(self.project_code)
-            self.fib_dir = "/privateShares/hmm56/{}/fib".format(self.project_code)
-            self.label_dir = "/privateShares/hmm56/{}/labels".format(self.project_code)
-            self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code) 
-        self.bash_wrapper_dsi_studio_dir = "{}/../bash_wrapper_dsi_studio".format(self.output_dir_base)
-        self.bash_wrapper_omni_manova_dir = "{}/../bash_wrapper_omni_manova".format(self.output_dir_base)
-        self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
         self.num_parents_mating = num_parents_mating
         self.sol_per_pop = sol_per_pop
         self.num_genes = 5
         self.gene_space = gene_space
         self.gene_type = gene_type
-        # on CTX04, where this will be ran
-        self.matlab = "C:/CIVM_Apps/MATLAB/R2021b/bin/matlab"
-        if CLUSTER:
-            #self.matlab = "/cm/shared/apps/MATLAB/R2021b/bin/matlab" 
-            self.matlab = "matlab"
 
-        # this SHOULD just work
+
+        # UPDATED VERSION
+        self.output_dir_base = "{}/{}/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
+        if DEBUG:
+            self.output_dir_base = "{}/{}/debug_test_08-11-2024/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
+            self.output_dir_base = "{}/{}/debug_test_10-by-25/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
+        self.src_sir = "{}/../src".format(self.output_dir_base)
+        self.fib_sir = "{}/../fib".format(self.output_dir_base)
+        # this one is only used in the cluster. otherwise, pull from archive
+        # TODO: it seems like the cluster archive connection is working again, test and unify solution (if so)
+        self.label_dir = "{}/../labels".format(self.output_dir_base)
+        self.bash_wrapper_dsi_studio_dir = "{}/../bash_wrapper_dsi_studio".format(self.output_dir_base)
+        self.bash_wrapper_omni_manova_dir = "{}/../bash_wrapper_omni_manova".format(self.output_dir_base)
+        self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
+       
+        # TODO: is there a way to get this archive base path from the environment?
+        self.archive_dir = "A:/{}/research".format(self.project_code)
+        if CLUSTER:
+            self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code) 
+
         self.matlabb = "matlab"
+        self.dsi_studio = dsi_studio
 
 
     def setup_dsi_studio_trk_call(self, experiment: dict, fib_file, qa_nifti_file, label_file, output_dir):
@@ -90,7 +85,7 @@ class GA_pipeline:
         threshold = self.find_vol_pct_threshold(qa_nifti_file, experiment["fa_threshold"])
         options_str += "--fa_threshold={} ".format(threshold)
 
-        s = "{} --action=trk {}".format(self.dsi_studio_version, options_str)
+        s = "{} --action=trk {}".format(self.dsi_studio, options_str)
         # print(s)
         return s
 
@@ -202,18 +197,14 @@ class GA_pipeline:
 
 
     def run_omnimanova(self, gen):
-        # TODO: get environment variables using os (or whatever package, maybe sys)
         out_dir = "{}/Omni_Manova-{}".format(self.omni_manova_dir_base, gen)
         data_frame_path = "{}/dataframe.csv".format(out_dir)
-        mat_script_template = "C:/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
-        run_R_analysis = 1;
-        if CLUSTER:
-            mat_script_template="/cm/shared/workstation/code/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m"
-            run_R_analysis = 0;
+        mat_script_template = "{}/analysis/Omni_Manova/Run_File/template_prototype_run_from_python.m".format(os.environ["WORKSTATION_CODE"])
+        # MUST be turned OFF when running on the cluster. R doesn't work there. Optional to run on CITRIX
+        run_R_analysis = 0;
         test_criteria = "{{'group1','group2','subgroup02','subgroup03', 'subgroup04', 'subgroup05','subgroup06','subgroup07','subgroup08','subgroup09','subgroup10','subgroup11','subgroup12'}}"
 
-        timestamp = time.time()
-        timestamp = int(timestamp)
+        timestamp = int(time.time())
         log_file = "{}/omni_manova_{}.log".format(out_dir, timestamp)
         # made a change to ALWAYS USE A UNIQUE matlab stub file. not safe to rewrite and use the same path for everything. likely where omni manova run glitches came from
         mat_script = "{}/run_from_python_{}.m".format(self.bash_wrapper_omni_manova_dir, timestamp)
@@ -234,36 +225,21 @@ class GA_pipeline:
             f.write(old)
             f.write("exit;")
 
-        # TODO: it doesn't actually EXIT matlab after it completes. why is that??
-        # at least when run in testing on master node, matlab completes and then it just sits with the matlab console open
-        # this is NOT IDEAL for if it runs on a node. is it lost for good and frozen?
-        # testing tonight (THURS)
-        cmd = "run('{}'); exit;".format(mat_script)
-
-        # i need an extra set of quotes around the whole thing printed into the bash wrapper. 
-        #cmd = '"run('{}'); exit;"'.format(mat_script)
         cmd = "\"run('{}'); exit;\"".format(mat_script)
         cmd = "{} -nosplash -nodisplay -nodesktop -r {} -logfile {}".format(self.matlab, cmd, log_file)
-        cmd = self.make_cluster_command(cmd, self.bash_wrapper_omni_manova_dir, "omni_manova-{}".format(gen), "120G")
+        if CLUSTER:
+            cmd = self.make_cluster_command(cmd, self.bash_wrapper_omni_manova_dir, "omni_manova-{}".format(gen), "120G")
+            print(cmd)
+            proc = subprocess.Popen(cmd.split(" "), stdout=subprocess.PIPE)
+            jid = proc.stdout.read().decode("utf-8").split(" ")[-1]
+            jid = jid.strip("\n")
+            cluster_wait_cmd = "pipeline_utilities cluster_wait {}".format(jid)
+            print("waiting for Omni Manova call to complete")
+            subprocess.run(cluster_wait_cmd.split(" "))
+        else:
+            subprocess.run(cmd.split(" "))
 
-        print(cmd)
-        proc = subprocess.Popen(cmd.split(" "), stdout=subprocess.PIPE)
-        jid = proc.stdout.read().decode("utf-8").split(" ")[-1]
-        jid = jid.strip("\n")
-        cluster_wait_cmd = "pipeline_utilities cluster_wait {}".format(jid)
-        print("waiting for Omni Manova call to complete")
-        subprocess.run(cluster_wait_cmd.split(" "))
-
-        # i believe is unnecessary now. Correct?? 
-        #with open(log_file, 'r') as f:
-        #    while True:
-        #        time.sleep(5)
-        #        if completion_code in f.read():
-        #            print("FOUND THE CODE: {}".format(completion_code))
-        #            break
-        #print("process complete")
-
-
+    
     def make_dataframe(self, generation):
         output_dir = "{}/Omni_Manova-{}".format(self.omni_manova_dir_base, generation)
         #date = datetime.today().strftime('%Y-%m-%d')
@@ -272,7 +248,8 @@ class GA_pipeline:
         csv_table = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
         experiment_list = csv_table.to_dict(orient='records')
 
-        # platform agnostic (i hope)
+        # must use a different template on the cluster because there are many absolute paths in the dataframe
+        # unsure how/if possible to use environment variables in that context
         df_template_path = "{}/other/{}_dataframe_template.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
         if CLUSTER:
              df_template_path = "{}/other/{}_dataframe_template_cluster.csv".format(os.path.dirname(os.path.realpath(__file__)), self.project_code)
@@ -649,44 +626,47 @@ class GA_pipeline:
         ga_instance.run()
         ga_instance.plot_fitness()
 
-'''fa_threshold	turning_angle	step_size	min_length	max_length'''
-
-# fa_threshold [0,0.7]
-# min_length [0.1, 5]
-# max_len [10,200]
-# turning_angle [15, 60]
-# step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
-# otsu_threshold [0.3, 1.2]
-
-# number of generations to run?? why did it run 5 instead of 1?
-ngen = 25
-project_code = "20.5xfad.01"
-runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
-              'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
-              'N60206NLSAM', 'N60208NLSAM', 'N60213NLSAM', 'N60215NLSAM', 'N60727NLSAM']
-debug = False
-# citrix computer dependent
-if CLUSTER: 
-    dsi_studio = "/cm/shared/workstation/aux/dsi_studio_2024-08-14/dsi_studio" 
-    experiment_table_path = "/privateShares/hmm56/20.5xfad.01/debug_test_10-by-25/genetic_initial_population.csv"
-else:
-    dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
-    experiment_table_path = "B:/ProjectSpace/vc144/20.5xfad.01/debug_test_08-11-2024/genetic_initial_population.csv"
 
 
-exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
-                  "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
-                  "connectivity", "connectivity_output"]
-num_parents_mating = 5
 
-gene_space = [{'low':1, 'high':70}, [15, 25, 35, 45], {'low':0.01, 'high':0.05},
-              {'low':0.1, 'high':5}, {'low':10, 'high':200}]
+if __name__ == "main":
+    project_code = "20.5xfad.01"
+    project_folder_name = "debug_test_10-by-25"
+    # number of generations to run?? why did it run 5 instead of 1?
+    ngen = 25
+    num_parents_mating = 5
+    sol_per_pop = 5
+    runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
+                  'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
+                  'N60206NLSAM', 'N60208NLSAM', 'N60213NLSAM', 'N60215NLSAM', 'N60727NLSAM']
+    debug = False
+    # citrix computer dependent
+    if CLUSTER: 
+        dsi_studio = "/cm/shared/workstation/aux/dsi_studio_2024-08-14/dsi_studio" 
+    else:
+        dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
 
-gene_type = [int, int, float, float, int]
+    experiment_table_path = "{}/{}/{}/genetic_initial_population.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name, project_folder_name)
 
-new_search = GA_pipeline(ngen=ngen, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
-                         dsi_studio=dsi_studio, exclusion_list=exclusion_list, num_parents_mating=num_parents_mating,
-                         gene_space=gene_space,gene_type=gene_type)
+    # these are the experiment_table columns that we do not care about
+    exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
+                      "threshold_index", "thread_count", "interpolation", "initial_dir", "source", "output",
+                      "connectivity", "connectivity_output"]
+
+    # fa_threshold [0,0.7]
+    # min_length [0.1, 5]
+    # max_len [10,200]
+    # turning_angle [15, 60]
+    # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
+    # otsu_threshold [0.3, 1.2]
+    gene_space = [{'low':1, 'high':70}, [15, 25, 35, 45], {'low':0.01, 'high':0.05},
+                  {'low':0.1, 'high':5}, {'low':10, 'high':200}]
+
+    gene_type = [int, int, float, float, int]
+
+    new_search = GA_pipeline(ngen=ngen, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
+                             dsi_studio=dsi_studio, exclusion_list=exclusion_list, num_parents_mating=num_parents_mating,
+                             gene_space=gene_space, gene_type=gene_type, project_code=project_code, sol_per_pop=sol_per_pop)
 
 
-new_search.run_GA()
+    new_search.run_GA()
