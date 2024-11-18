@@ -629,7 +629,15 @@ class GA_pipeline:
 
 
 
-if __name__ == "main":
+# experiment organization
+# BIGGUS_DISKUS is your working space on any computer
+    # cluster = /private_shares/${username}
+    # citrix = B:/ProjectSpace/${username}
+# within that, make a project_code folder. this includes all data and experiments related to that project. inputs will be here (fib, src, and labels dir)
+# within that, make a project_folder folder. This is used to store all results and intermediate data
+# within that, are all of the folders that we create. 
+
+if __name__ == "__main__":
     project_code = "20.5xfad.01"
     project_folder_name = "debug_test_10-by-25"
     # number of generations to run?? why did it run 5 instead of 1?
