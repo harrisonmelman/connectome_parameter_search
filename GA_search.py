@@ -30,7 +30,7 @@ if DEBUG:
     SOL_PER_GENERATION = 10
 
 class GA_pipeline:
-    def __init__(self, ngen, experiment_table_path, runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type, project_code, sol_per_pop):
+    def __init__(self, ngen, experiment_table_path, runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type, project_code):
         # HARRISON ADDED RANDOMLY CHOSEN VALUE (previously unset)
         self.project_code = project_code
         self.debug = debug
@@ -39,12 +39,11 @@ class GA_pipeline:
         self.experiment_table_path = experiment_table_path
         self.ngen = ngen
         self.num_parents_mating = num_parents_mating
-        self.sol_per_pop = sol_per_pop
         self.num_genes = 5
         self.gene_space = gene_space
         self.gene_type = gene_type
-
-
+        self.best_sol_uids = []
+      
         # UPDATED VERSION
         self.output_dir_base = "{}/{}/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
         if DEBUG:
@@ -271,7 +270,7 @@ class GA_pipeline:
         # we only want to take experiments from the current (nth) and the immediately previous (n-1) generation to run omni-manova on
         # and we know (by our definition) that each generation has 24 experiments
         if generation >0:
-          generation_start_index = SOL_PER_GENERATION*(generation-1)
+          generation_start_index = SOL_PER_GENERATION * generation
         else:
           generation_start_index = 0
 
@@ -383,6 +382,8 @@ class GA_pipeline:
       #global last_fitness
       print(f"Generation = {ga_instance.generations_completed}")
       print(f"Fitness    = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]}")
+      best_sol_idx = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[2]
+      self.best_sol_uids.append(ga_instance.generations_completed*SOL_PER_GENERATION + best_sol_idx)
       #print(f"Change     = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1] - last_fitness}")
       #last_fitness = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]
 
@@ -612,19 +613,25 @@ class GA_pipeline:
                                num_genes=self.num_genes,
                                fitness_func=self.fitness_function,
                                on_start = self.on_start,
-                               parent_selection_type="sss",
+                               parent_selection_type="sus",
                                crossover_type="scattered",
                                gene_space=self.gene_space,
                                gene_type=self.gene_type,
                                on_generation=self.on_generation,
                                on_mutation=self.on_mutation,
                                initial_population=ini_pop,
-                               mutation_num_genes=2,  # initial population
+                               mutation_percent_genes=20,
+                               mutation_probability = 0.3,
                                mutation_type="random",
                                keep_elitism = 0,
+                               save_best_solutions = True,
                                keep_parents=0)
         ga_instance.run()
-        ga_instance.plot_fitness()
+        best_solutions = ga_instance.best_solutions
+	best_sol_df = pd.DataFrame(best_solutions, columns = ['fa_threshold', 'turning_angle', 'step_size', 'min_length', 'max_length'])
+        best_sol_df['Fitness'] = ga_instance.best_solutions_fitness
+	best_sol_df['UID'] = self.best_sol_uids
+        best_sol_df.to_csv("{}/{}/{}/best_solutions.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name))
 
 
 
@@ -643,7 +650,6 @@ if __name__ == "__main__":
     # number of generations to run?? why did it run 5 instead of 1?
     ngen = 25
     num_parents_mating = 5
-    sol_per_pop = 5
     runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
                   'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
                   'N60206NLSAM', 'N60208NLSAM', 'N60213NLSAM', 'N60215NLSAM', 'N60727NLSAM']
@@ -654,7 +660,7 @@ if __name__ == "__main__":
     else:
         dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
 
-    experiment_table_path = "{}/{}/{}/genetic_initial_population.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name, project_folder_name)
+    experiment_table_path = "{}/{}/{}/genetic_initial_population.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name"{}/{}/{}/genetic_initial_population.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name))
 
     # these are the experiment_table columns that we do not care about
     exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
@@ -674,7 +680,7 @@ if __name__ == "__main__":
 
     new_search = GA_pipeline(ngen=ngen, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
                              dsi_studio=dsi_studio, exclusion_list=exclusion_list, num_parents_mating=num_parents_mating,
-                             gene_space=gene_space, gene_type=gene_type, project_code=project_code, sol_per_pop=sol_per_pop)
+                             gene_space=gene_space, gene_type=gene_type, project_code=project_code)
 
 
     new_search.run_GA()
