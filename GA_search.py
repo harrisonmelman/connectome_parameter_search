@@ -44,27 +44,32 @@ class GA_pipeline:
         self.gene_type = gene_type
         self.best_sol_uids = []
       
-        # UPDATED VERSION
-        self.output_dir_base = "{}/{}/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
+        #input and output paths
+        self.output_dir_base = "{}/{}/connectome_parameter_search/genetic_parameter_sets".format(os.environ["BIGGUS_DISKUS"], self.project_code)
+        self.src_dir = "{}/{}/src".format(os.environ["BIGGUS_DISKUS"], self.project_code)
+        self.fib_dir = "{}/{}/fib".format(os.environ["BIGGUS_DISKUS"], self.project_code)
+        self.label_dir = "{}/{}/labels".format(os.environ["BIGGUS_DISKUS"], self.project_code)
         if DEBUG:
-            self.output_dir_base = "{}/{}/debug_test_08-11-2024/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
             self.output_dir_base = "{}/{}/debug_test_10-by-25/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
-        self.src_sir = "{}/../src".format(self.output_dir_base)
-        self.fib_sir = "{}/../fib".format(self.output_dir_base)
+        self.archive_dir = "A:/{}/research".format(self.project_code)
+        if CLUSTER:
+            self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code)
         # this one is only used in the cluster. otherwise, pull from archive
         # TODO: it seems like the cluster archive connection is working again, test and unify solution (if so)
-        self.label_dir = "{}/../labels".format(self.output_dir_base)
         self.bash_wrapper_dsi_studio_dir = "{}/../bash_wrapper_dsi_studio".format(self.output_dir_base)
         self.bash_wrapper_omni_manova_dir = "{}/../bash_wrapper_omni_manova".format(self.output_dir_base)
         self.omni_manova_dir_base = "{}/../genetic_search".format(self.output_dir_base)
-       
-        # TODO: is there a way to get this archive base path from the environment?
-        self.archive_dir = "A:/{}/research".format(self.project_code)
-        if CLUSTER:
-            self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code) 
+        # currently unused. it may be smart (for code readability purposes) that the different output dirs are more explicitly named instead of being referenced relative to the dsi_studio output dir
+        self.dsi_studio_dir_base = self.output_dir_base
 
-        self.matlabb = "matlab"
+        self.matlab = "matlab"
         self.dsi_studio = dsi_studio
+        
+        os.makedirs(self.output_dir_base, exist_ok=True)
+        if not os.path.isdir(self.fib_dir):
+            print("ERROR: input fib directory does not exist: {}".format(self.fib_dir))
+            return
+
 
 
     def setup_dsi_studio_trk_call(self, experiment: dict, fib_file, qa_nifti_file, label_file, output_dir):
@@ -271,6 +276,7 @@ class GA_pipeline:
         # and we know (by our definition) that each generation has 24 experiments
         if generation >0:
           generation_start_index = SOL_PER_GENERATION * generation
+          print(generation_start_index)
         else:
           generation_start_index = 0
 
@@ -628,9 +634,9 @@ class GA_pipeline:
                                keep_parents=0)
         ga_instance.run()
         best_solutions = ga_instance.best_solutions
-	best_sol_df = pd.DataFrame(best_solutions, columns = ['fa_threshold', 'turning_angle', 'step_size', 'min_length', 'max_length'])
+        best_sol_df = pd.DataFrame(best_solutions, columns = ['fa_threshold', 'turning_angle', 'step_size', 'min_length', 'max_length'])
         best_sol_df['Fitness'] = ga_instance.best_solutions_fitness
-	best_sol_df['UID'] = self.best_sol_uids
+        best_sol_df['UID'] = self.best_sol_uids
         best_sol_df.to_csv("{}/{}/{}/best_solutions.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name))
 
 
@@ -660,7 +666,7 @@ if __name__ == "__main__":
     else:
         dsi_studio = "//pwp-civm-ctx01/K/CIVM_APPS/dsi_studio_64/dsi_studio_win_cpu_v2024-08-14/dsi_studio.exe"
 
-    experiment_table_path = "{}/{}/{}/genetic_initial_population.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name"{}/{}/{}/genetic_initial_population.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name))
+    experiment_table_path = "{}/{}/{}/genetic_initial_population.csv".format(os.environ["BIGGUS_DISKUS"], project_code, project_folder_name)
 
     # these are the experiment_table columns that we do not care about
     exclusion_list = ["random_seed", "export", "connectivity_threshold", "connectivity_type", "connectivity_value",
