@@ -1,0 +1,3 @@
+[submodule "GeneticAlgorithmPython"]
+	path = GeneticAlgorithmPython
+	url = https://github.com/ahmedfgad/GeneticAlgorithmPython
