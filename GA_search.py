@@ -71,7 +71,6 @@ class GA_pipeline:
             return
 
 
-
     def setup_dsi_studio_trk_call(self, experiment: dict, fib_file, qa_nifti_file, label_file, output_dir):
         options_str = ""
         dsi_exclusion_list = ["uid", "fa_threshold", "output", "source", "connectivity", "connectivity_output"]
@@ -109,8 +108,6 @@ class GA_pipeline:
         return "sbatch --mem={} {}".format(memory, bash_wrapper)
 
 
-
-
     def find_vol_pct_threshold(self, image, percent):
         nifti = nib.load(image)
         data, header = nifti.get_fdata(), nifti.header
@@ -146,12 +143,12 @@ class GA_pipeline:
                 output_dir = "{}/{}".format(experiment_dir, runno)
                 if not os.path.exists(output_dir):
                     os.mkdir(output_dir)
-                # i was having archive connection troubles on the cluster, so I just loaded in the labels file to a local directory
-                # labels (i think) is all that was needed from the archive for this
-                #label_file = "{}/connectome{}dsi_studio/labels/RCCF/{}_RCCF_labels.nii.gz".format(self.archive_dir, runno, runno)
                 label_file = "{}/{}_RCCF_labels.nii.gz".format(self.label_dir, runno)
+                # TODO: no future guarantees that 0.9 diffusion len ratio will be used
+                # used glob and search for files
                 fib_file = "{}/nii4D_{}.src.gz.gqi.0.9.fib.gz".format(self.fib_dir, runno)
                 qa_file = "{}/nii4D_{}.src.gz.gqi.0.9.fib.gz.qa.nii.gz".format(self.fib_dir, runno)
+
                 # check for completion by looking for any trk file in the outputs folder
                 found_trk = glob.glob("{}/*.trk.gz".format(output_dir))
                 found_tt = glob.glob("{}/*.tt.gz".format(output_dir))
@@ -197,7 +194,6 @@ class GA_pipeline:
             for cmd in cmds:
                 subprocess.run(cmd, shell=True)
         print("done scheduling DSI Studio calls")
-
 
 
     def run_omnimanova(self, gen):
@@ -362,6 +358,7 @@ class GA_pipeline:
                 row.update(value)
                 writer.writerow(row)'''
 
+
     '''def on_generation(self, ga_instance):
         current_sol = ga_instance.population
         current_gen = ga_instance.generations_completed
@@ -383,7 +380,6 @@ class GA_pipeline:
         print("starting OmniManova for generation {}".format(current_gen))
         self.run_omnimanova(current_gen)
         print("Completed DSI Studion and OmniManova runs for generation {}".format(current_gen))'''
-
     def on_generation(self, ga_instance):
       #global last_fitness
       print(f"Generation = {ga_instance.generations_completed}")
@@ -392,7 +388,6 @@ class GA_pipeline:
       self.best_sol_uids.append(ga_instance.generations_completed*SOL_PER_GENERATION + best_sol_idx)
       #print(f"Change     = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1] - last_fitness}")
       #last_fitness = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]
-
 
 
     def on_mutation(self, ga_instance, offspring_mutation):
@@ -426,6 +421,7 @@ class GA_pipeline:
         print("starting OmniManova for generation {}".format(current_gen))
         self.run_omnimanova(current_gen)
         print("Completed DSI Studio and OmniManova runs for generation {}".format(current_gen))
+
 
     def on_start(self, ga_instance):
         # code will search for improvements to this by checking what is already completed
@@ -564,6 +560,7 @@ class GA_pipeline:
             # then no pre-work needs to be done, just set the current generation and go on to main algorithm
             print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed-1))
             ga_instance.generations_completed = dsi_gens_completed - 1
+
 
     def fitness_function(self, ga_instance, solution, solution_idx):
         gen = ga_instance.generations_completed
