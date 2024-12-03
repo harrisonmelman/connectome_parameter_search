@@ -71,6 +71,7 @@ class GA_pipeline:
             return
 
 
+
     def setup_dsi_studio_trk_call(self, experiment: dict, fib_file, qa_nifti_file, label_file, output_dir):
         options_str = ""
         dsi_exclusion_list = ["uid", "fa_threshold", "output", "source", "connectivity", "connectivity_output"]
@@ -106,6 +107,8 @@ class GA_pipeline:
             f.write("#!/usr/bin/env bash\n")
             f.write(cmd)
         return "sbatch --mem={} {}".format(memory, bash_wrapper)
+
+
 
 
     def find_vol_pct_threshold(self, image, percent):
@@ -194,6 +197,7 @@ class GA_pipeline:
             for cmd in cmds:
                 subprocess.run(cmd, shell=True)
         print("done scheduling DSI Studio calls")
+
 
 
     def run_omnimanova(self, gen):
@@ -358,7 +362,6 @@ class GA_pipeline:
                 row.update(value)
                 writer.writerow(row)'''
 
-
     '''def on_generation(self, ga_instance):
         current_sol = ga_instance.population
         current_gen = ga_instance.generations_completed
@@ -380,6 +383,7 @@ class GA_pipeline:
         print("starting OmniManova for generation {}".format(current_gen))
         self.run_omnimanova(current_gen)
         print("Completed DSI Studion and OmniManova runs for generation {}".format(current_gen))'''
+
     def on_generation(self, ga_instance):
       #global last_fitness
       print(f"Generation = {ga_instance.generations_completed}")
@@ -421,7 +425,6 @@ class GA_pipeline:
         print("starting OmniManova for generation {}".format(current_gen))
         self.run_omnimanova(current_gen)
         print("Completed DSI Studio and OmniManova runs for generation {}".format(current_gen))
-
 
     def on_start(self, ga_instance):
         # code will search for improvements to this by checking what is already completed
@@ -582,13 +585,14 @@ class GA_pipeline:
         uids = [(i // 17) for i in range(len(cleaned_semipar))]
         semipar_df['uid'] = uids
         print(semipar_df)
+        dist_data = semipar_df[semipar_df['uid'] == solution_idx]
         # TODO: very uncertrain about what gen should be set to, so subtracting one because I get index outofbounds
-        if gen == 0:
+        '''if gen == 0:
             # then we only have SOL_PER_GENERATION in total
             dist_data = semipar_df[semipar_df['uid'] == solution_idx]
         else:
             # then we have 2*SOL_PER_GENERATION, but we only care about the final n
-            dist_data = semipar_df[semipar_df['uid'] == SOL_PER_GENERATION + solution_idx]
+            dist_data = semipar_df[semipar_df['uid'] == SOL_PER_GENERATION + solution_idx]'''
         print("DIST DATA")
         print(dist_data)
         print("uid indices: {}".format(SOL_PER_GENERATION+solution_idx) )
@@ -651,8 +655,8 @@ if __name__ == "__main__":
     project_code = "20.5xfad.01"
     project_folder_name = "debug_test_10-by-25"
     # number of generations to run?? why did it run 5 instead of 1?
-    ngen = 25
-    num_parents_mating = 5
+    ngen = 250
+    num_parents_mating = 3
     runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
                   'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
                   'N60206NLSAM', 'N60208NLSAM', 'N60213NLSAM', 'N60215NLSAM', 'N60727NLSAM']
