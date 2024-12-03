@@ -431,9 +431,7 @@ class GA_pipeline:
         ga_instance.generations_completed = 0
         # this should check where we currently are and try to restart the algorithm from that point
         # do a "generation search" by seeing how many Omni-Manovas have been done
-        found_omni_results = glob.glob("{}/Omni_Manova-*".format(self.omni_manova_dir_base))
-        # important to sort because the result is not guaranteed to come back already sorted
-        found_omni_results.sort()
+        found_omni_results = sorted(glob.glob("{}/Omni_Manova-*".format(self.omni_manova_dir_base)),key=os.path.getmtime)
         omni_done = False
         omni_gens_completed = 0
         last_omni_gen_completed = 0
