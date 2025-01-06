@@ -50,7 +50,7 @@ class GA_pipeline:
         self.fib_dir = "{}/{}/fib".format(os.environ["BIGGUS_DISKUS"], self.project_code)
         self.label_dir = "{}/{}/labels".format(os.environ["BIGGUS_DISKUS"], self.project_code)
         if DEBUG:
-            self.output_dir_base = "{}/{}/debug_test_10-by-25/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
+            self.output_dir_base = "{}/{}/GA_run_300/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
         self.archive_dir = "A:/{}/research".format(self.project_code)
         if CLUSTER:
             self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code)
@@ -246,10 +246,20 @@ class GA_pipeline:
     
     def make_dataframe(self, generation):
         output_dir = "{}/Omni_Manova-{}".format(self.omni_manova_dir_base, generation)
+        print("trying to make a daaframe for: {}".format(output_dir))
         #date = datetime.today().strftime('%Y-%m-%d')
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
+
+        if generation >0:
+          generation_start_index = SOL_PER_GENERATION * generation
+          print(generation_start_index)
+        else:
+          generation_start_index = 0
+
+        generation_stop_index = (SOL_PER_GENERATION * generation) + SOL_PER_GENERATION
         csv_table = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
+        csv_table = csv_table.iloc[generation_start_index:generation_stop_index]
         experiment_list = csv_table.to_dict(orient='records')
 
         # must use a different template on the cluster because there are many absolute paths in the dataframe
@@ -281,8 +291,9 @@ class GA_pipeline:
           generation_start_index = 0
 
         for experiment in experiment_list:
-            if experiment["uid"] < generation_start_index:
-                continue
+            #print(experiment["uid"])
+            #if experiment["uid"] < generation_start_index:
+                #continue
             for runno in runno_list:
                 # row is now a dictionary
                 # force a COPY here so you do not edit the original
@@ -296,7 +307,7 @@ class GA_pipeline:
                 # in this experiment, GROUP is defined to be all of the specimen invariants (strain,sex,age...)
                 # and subgroup is defined as all of the dsi studio tractography parameters
                 row.update({x: experiment[x] for x in experiment.keys() - self.exclusion_list})
-                print(row)
+                #print(row)
                 # subgroup_index = 1
                 # for key in sorted(experiment.keys()-exclusion_list):
                 #    row["subgroup{}".format(subgroup_index)] = experiment[key]
@@ -390,6 +401,8 @@ class GA_pipeline:
       print(f"Fitness    = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]}")
       best_sol_idx = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[2]
       self.best_sol_uids.append(ga_instance.generations_completed*SOL_PER_GENERATION + best_sol_idx)
+      with open("/privateShares/vc144/20.5xfad.01/GA_run_300/best_sols.csv", 'a') as file:
+         file.write(str(ga_instance.generations_completed*SOL_PER_GENERATION + best_sol_idx) + '\n')
       #print(f"Change     = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1] - last_fitness}")
       #last_fitness = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]
 
@@ -419,6 +432,8 @@ class GA_pipeline:
 
         print("starting DSI Studio for generation {}".format(current_gen))
         self.run_dsi_studio(exp_list)
+        time.sleep(60) # 60 second delay
+        print(" 1 minute delay")
         print("making dataframe for generation {}".format(current_gen))
         self.make_dataframe(current_gen)
         print("finished dataframe for generation {}".format(current_gen))
@@ -449,14 +464,10 @@ class GA_pipeline:
                 print("omni generations completed (count): {}".format(omni_gens_completed))
                 break
         if not omni_done:
-            # TODO: setup so that it will just run omni manova for the experiments that already have dsi studio results
-            # this is a BAD state, as you should already have one generation of manual omni manova results to prime
-            # the algorithm. is required for the first round of fitness calculations,
             print("no omni manova results found. BAD STATE. you need a manual first generation from which we calculate initial fitness values for")
             print("search_dir was {}".format(self.omni_manova_dir_base))
             self.make_dataframe(0)
             self.run_omnimanova(0)
-            #quit()
 
         # we are checking if everything that is in our current experiment list CSV file is accounted for.
         # do we need to run DSI studio again before running on_mutation?
@@ -546,7 +557,7 @@ class GA_pipeline:
 
         # now with the given information about what is complete, make decision about where to start
         if omni_gens_completed < dsi_gens_completed:
-            print("DSI results complete, but omni results are beind one generation. running omni manova-{} to catch up, then will continue the main algorithm".format(dsi_gens_completed))
+            print("DSI results complete, but omni results are beind one generation. running omni manova-{} to catch up, then will continue the main algorithm".format(dsi_gens_completed-1))
             # TODO: this currently makes the assumption that this case will always be:
                 # omni_gens_completed = dsi_gens_completed - 1
             # then we need to catch up by running make dataframe and omni manova
@@ -591,6 +602,7 @@ class GA_pipeline:
         else:
             # then we have 2*SOL_PER_GENERATION, but we only care about the final n
             dist_data = semipar_df[semipar_df['uid'] == SOL_PER_GENERATION + solution_idx]'''
+        print(solution_idx)
         print("DIST DATA")
         print(dist_data)
         print("uid indices: {}".format(SOL_PER_GENERATION+solution_idx) )
@@ -599,8 +611,8 @@ class GA_pipeline:
         nTg_idx = dist_data[dist_data[0] == 'nTg'].index
         Tg_idx = dist_data[dist_data[0] == 'Tg'].index
         summ = 0
-        for i in range(len(Tg_idx)):
-            for j in range(len(nTg_idx)):
+        for i in Tg_idx:
+            for j in nTg_idx:
                 dist = file['Dist'][i][j]
                 summ += dist
         print("tg_tdx: {}".format(Tg_idx))
@@ -651,7 +663,7 @@ class GA_pipeline:
 
 if __name__ == "__main__":
     project_code = "20.5xfad.01"
-    project_folder_name = "debug_test_10-by-25"
+    project_folder_name = "GA_run_300"
     # number of generations to run?? why did it run 5 instead of 1?
     ngen = 250
     num_parents_mating = 3
