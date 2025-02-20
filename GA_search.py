@@ -13,7 +13,7 @@ from pathlib import Path
 import csv
 import math
 import scipy.io as scio
-
+import sys
 
 # value boundaries
 # fa_threshold [0,0.7]
@@ -22,35 +22,37 @@ import scipy.io as scio
 # turning_angle [15, 60]
 # step_size [0.01, 0.05] step size is in mm. our data has a resolution of 0.025 mm. ranges from sub-voxel to 2-voxels
 # otsu_threshold [0.3, 1.2]
-DEBUG = True
+DEBUG = False
 CLUSTER = True
-SOL_PER_GENERATION = 24
+SOL_PER_GENERATION = 11
 if DEBUG:
     SOL_PER_GENERATION = 3
     SOL_PER_GENERATION = 10
 
 class GA_pipeline:
-    def __init__(self, ngen, experiment_table_path, runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type, project_code):
+    def __init__(self, ngen, experiment_table_path, project_folder_name, runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type, project_code, mutation_rate):
         # HARRISON ADDED RANDOMLY CHOSEN VALUE (previously unset)
         self.project_code = project_code
         self.debug = debug
         self.exclusion_list = exclusion_list
         self.runno_list = runno_list
         self.experiment_table_path = experiment_table_path
+        self.mutation_rate = mutation_rate
         self.ngen = ngen
         self.num_parents_mating = num_parents_mating
         self.num_genes = 5
         self.gene_space = gene_space
         self.gene_type = gene_type
         self.best_sol_uids = []
+        self.project_folder_name = project_folder_name
       
         #input and output paths
-        self.output_dir_base = "{}/{}/connectome_parameter_search/genetic_parameter_sets".format(os.environ["BIGGUS_DISKUS"], self.project_code)
+        self.output_dir_base = "{}/{}/{}/genetic_parameter_sets".format(os.environ["BIGGUS_DISKUS"], self.project_code, self.project_folder_name)
         self.src_dir = "{}/{}/src".format(os.environ["BIGGUS_DISKUS"], self.project_code)
         self.fib_dir = "{}/{}/fib".format(os.environ["BIGGUS_DISKUS"], self.project_code)
         self.label_dir = "{}/{}/labels".format(os.environ["BIGGUS_DISKUS"], self.project_code)
         if DEBUG:
-            self.output_dir_base = "{}/{}/GA_run_300/{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
+            self.output_dir_base = "{}/{}//{}".format(os.environ["BIGGUS_DISKUS"], self.project_code, "genetic_parameter_sets")
         self.archive_dir = "A:/{}/research".format(self.project_code)
         if CLUSTER:
             self.archive_dir = "/mnt/nclin-comp-pri.dhe.duke.edu/dusom_civm-atlas/{}/research/".format(self.project_code)
@@ -572,8 +574,32 @@ class GA_pipeline:
             # then no pre-work needs to be done, just set the current generation and go on to main algorithm
             print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed-1))
             ga_instance.generations_completed = dsi_gens_completed - 1
-
-
+    
+    def fitness_function(self, ga_instance, solution, solution_idx):
+        ASE_column_decoder = {'group1': 'gene_condition', 'group2': 'sex', 'group3': 'strain', 'group4': 'age',
+                              'subgroup01': 'uid', 'subgroup02': 'max_length', 'subgroup03': 'fa_threshold',
+                              'subgroup04': 'turning_angle', 'subgroup05': 'tip_iteration', 'subgroup06': 'smoothing',
+                              'subgroup07': 'seed_count', 'subgroup08': 'step_size', 'subgroup09': 'min_length',
+                              'subgroup10': 'method', 'subgroup11': 'otsu_threshold', 'subgroup12': 'seed_plan'}
+        gen = ga_instance.generations_completed
+        ASE_path = "{}/Omni_Manova-{}/BrainScaled_Omni_Manova/*/Global_ASE_0000.csv".format(self.omni_manova_dir_base,gen)
+        print(ASE_path)
+        ASE_data = pd.read_csv(glob.glob(ASE_path)[0]).rename(columns=ASE_column_decoder)
+        ASE_data = ASE_data[ASE_data['uid'] == gen*SOL_PER_GENERATION + solution_idx]
+        tg_X1 = ASE_data[ASE_data['gene_condition'] == 'Tg']['X1']
+        tg_X2 = ASE_data[ASE_data['gene_condition'] == 'Tg']['X2']
+        ntg_X1 = ASE_data[ASE_data['gene_condition'] == 'nTg']['X1']
+        ntg_X2 = ASE_data[ASE_data['gene_condition'] == 'nTg']['X2']
+        tg_centroid = (np.mean(tg_X1), np.mean(tg_X2))
+        ntg_centroid = (np.mean(ntg_X1), np.mean(ntg_X2))
+        centroid_distance = np.sqrt((tg_centroid[0] - ntg_centroid[0])**2 + (tg_centroid[1] - ntg_centroid[1])**2)
+        tg_var = np.var(tg_X1, ddof=1) + np.var(tg_X2, ddof=1)
+        ntg_var = np.var(ntg_X1, ddof=1) + np.var(ntg_X2, ddof=1)
+        pooled_std = np.sqrt((tg_var + ntg_var) / 2)
+        cohen_d_centroid = centroid_distance / pooled_std
+        return [centroid_distance, cohen_d_centroid]
+        
+        """        
     def fitness_function(self, ga_instance, solution, solution_idx):
         gen = ga_instance.generations_completed
         # read in global MDS results as a pandas dataframe
@@ -596,12 +622,12 @@ class GA_pipeline:
         print(semipar_df)
         dist_data = semipar_df[semipar_df['uid'] == solution_idx]
         # TODO: very uncertrain about what gen should be set to, so subtracting one because I get index outofbounds
-        '''if gen == 0:
+        'if gen == 0:
             # then we only have SOL_PER_GENERATION in total
             dist_data = semipar_df[semipar_df['uid'] == solution_idx]
         else:
             # then we have 2*SOL_PER_GENERATION, but we only care about the final n
-            dist_data = semipar_df[semipar_df['uid'] == SOL_PER_GENERATION + solution_idx]'''
+            dist_data = semipar_df[semipar_df['uid'] == SOL_PER_GENERATION + solution_idx]'
         print(solution_idx)
         print("DIST DATA")
         print(dist_data)
@@ -619,9 +645,11 @@ class GA_pipeline:
         print("ntg_tdx: {}".format(nTg_idx))
         fitness1 = summ / (len(Tg_idx) * len(nTg_idx))
         return fitness1
-        #return [fitness1, fitness2]
+        return [fitness1, fitness2]
+        """
 
 
+        
     def run_GA(self):
         in_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",").iloc[-SOL_PER_GENERATION:]
         ini_pop = in_pop_df[['fa_threshold', 'turning_angle', 'step_size', 'min_length', 'max_length']].to_numpy()
@@ -630,15 +658,15 @@ class GA_pipeline:
                                num_genes=self.num_genes,
                                fitness_func=self.fitness_function,
                                on_start = self.on_start,
-                               parent_selection_type="sus",
+                               parent_selection_type="nsga2",
                                crossover_type="scattered",
                                gene_space=self.gene_space,
                                gene_type=self.gene_type,
                                on_generation=self.on_generation,
                                on_mutation=self.on_mutation,
                                initial_population=ini_pop,
-                               mutation_percent_genes=20,
-                               mutation_probability = 0.3,
+                               mutation_probability = self.mutation_rate,
+                              # mutation_percent_genes=20,
                                mutation_type="random",
                                keep_elitism = 0,
                                save_best_solutions = True,
@@ -662,10 +690,12 @@ class GA_pipeline:
 # within that, are all of the folders that we create. 
 
 if __name__ == "__main__":
-    project_code = "20.5xfad.01"
-    project_folder_name = "GA_run_300"
+    print(sys.argv)
+    project_code = sys.argv[1] #"20.5xfad.01"
+    project_folder_name = sys.argv[2] #"GA_run_300"
+    mutation_rate = float(sys.argv[3]) 
     # number of generations to run?? why did it run 5 instead of 1?
-    ngen = 250
+    ngen = 600
     num_parents_mating = 3
     runno_list = ['N59128NLSAM', 'N59130NLSAM', 'N59132NLSAM', 'N59134NLSAM', 'N60076NLSAM', 'N60145NLSAM',
                   'N60149NLSAM', 'N60151NLSAM', 'N60153NLSAM', 'N60155NLSAM', 'N60165NLSAM', 'N60171NLSAM',
@@ -695,9 +725,9 @@ if __name__ == "__main__":
 
     gene_type = [int, int, float, float, int]
 
-    new_search = GA_pipeline(ngen=ngen, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
+    new_search = GA_pipeline(ngen=ngen, project_folder_name = project_folder_name, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
                              dsi_studio=dsi_studio, exclusion_list=exclusion_list, num_parents_mating=num_parents_mating,
-                             gene_space=gene_space, gene_type=gene_type, project_code=project_code)
+                             gene_space=gene_space, gene_type=gene_type, project_code=project_code, mutation_rate=mutation_rate)
 
 
     new_search.run_GA()
