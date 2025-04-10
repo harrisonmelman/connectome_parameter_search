@@ -30,7 +30,7 @@ if DEBUG:
     SOL_PER_GENERATION = 10
 
 class GA_pipeline:
-    def __init__(self, ngen, experiment_table_path, project_folder_name, runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type, project_code, mutation_rate):
+    def __init__(self, ngen, mutation_type, fitness_type, experiment_table_path, project_folder_name, runno_list, debug, dsi_studio, exclusion_list, num_parents_mating, gene_space, gene_type, project_code, mutation_rate):
         # HARRISON ADDED RANDOMLY CHOSEN VALUE (previously unset)
         self.project_code = project_code
         self.debug = debug
@@ -41,7 +41,9 @@ class GA_pipeline:
         self.ngen = ngen
         self.num_parents_mating = num_parents_mating
         self.num_genes = 5
+        self.fitness_type = fitness_type
         self.gene_space = gene_space
+        self.mutation_type = mutation_type
         self.gene_type = gene_type
         self.best_sol_uids = []
         self.project_folder_name = project_folder_name
@@ -402,6 +404,9 @@ class GA_pipeline:
       print(f"Generation = {ga_instance.generations_completed}")
       print(f"Fitness    = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]}")
       best_sol_idx = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[2]
+      initial_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",")
+      initial_pop_df["fitness"].iloc[SOL_PER_GENERATION*(ga_instance.generations_completed - 1):SOL_PER_GENERATION*ga_instance.generations_completed] = ga_instance.last_generation_fitness
+      initial_pop_df.to_csv(self.experiment_table_path)
       self.best_sol_uids.append(ga_instance.generations_completed*SOL_PER_GENERATION + best_sol_idx)
       with open("/privateShares/vc144/20.5xfad.01/GA_run_300/best_sols.csv", 'a') as file:
          file.write(str(ga_instance.generations_completed*SOL_PER_GENERATION + best_sol_idx) + '\n')
@@ -430,6 +435,8 @@ class GA_pipeline:
         current_sol_df[solution_keys] = current_sol
         exp_list = current_sol_df.to_dict(orient='records')
         concat_df = pd.concat([initial_pop_df, current_sol_df], axis=0)
+        if 'fitness' not in concat_df.columns:
+           concat_df['fitness'] = 0
         concat_df.to_csv(self.experiment_table_path, index=False)
 
         print("starting DSI Studio for generation {}".format(current_gen))
@@ -575,7 +582,7 @@ class GA_pipeline:
             print("parity with omni manova and DSI results. setting generations_completed to {} and resuming main algorithm".format(dsi_gens_completed-1))
             ga_instance.generations_completed = dsi_gens_completed - 1
     
-    def fitness_function(self, ga_instance, solution, solution_idx):
+    def fitness_function_1(self, ga_instance, solution, solution_idx):
         ASE_column_decoder = {'group1': 'gene_condition', 'group2': 'sex', 'group3': 'strain', 'group4': 'age',
                               'subgroup01': 'uid', 'subgroup02': 'max_length', 'subgroup03': 'fa_threshold',
                               'subgroup04': 'turning_angle', 'subgroup05': 'tip_iteration', 'subgroup06': 'smoothing',
@@ -598,6 +605,30 @@ class GA_pipeline:
         pooled_std = np.sqrt((tg_var + ntg_var) / 2)
         cohen_d_centroid = centroid_distance / pooled_std
         return [centroid_distance, cohen_d_centroid]
+
+    def fitness_function_2(self, ga_instance, solution, solution_idx):
+        ASE_column_decoder = {'group1': 'gene_condition', 'group2': 'sex', 'group3': 'strain', 'group4': 'age',
+                              'subgroup01': 'uid', 'subgroup02': 'max_length', 'subgroup03': 'fa_threshold',
+                              'subgroup04': 'turning_angle', 'subgroup05': 'tip_iteration', 'subgroup06': 'smoothing',
+                              'subgroup07': 'seed_count', 'subgroup08': 'step_size', 'subgroup09': 'min_length',
+                              'subgroup10': 'method', 'subgroup11': 'otsu_threshold', 'subgroup12': 'seed_plan'}
+        gen = ga_instance.generations_completed
+        ASE_path = "{}/Omni_Manova-{}/BrainScaled_Omni_Manova/*/Global_ASE_0000.csv".format(self.omni_manova_dir_base,gen)
+        print(ASE_path)
+        ASE_data = pd.read_csv(glob.glob(ASE_path)[0]).rename(columns=ASE_column_decoder)
+        ASE_data = ASE_data[ASE_data['uid'] == gen*SOL_PER_GENERATION + solution_idx]
+        tg_X1 = ASE_data[ASE_data['gene_condition'] == 'Tg']['X1']
+        tg_X2 = ASE_data[ASE_data['gene_condition'] == 'Tg']['X2']
+        ntg_X1 = ASE_data[ASE_data['gene_condition'] == 'nTg']['X1']
+        ntg_X2 = ASE_data[ASE_data['gene_condition'] == 'nTg']['X2']
+        tg_centroid = (np.mean(tg_X1), np.mean(tg_X2))
+        ntg_centroid = (np.mean(ntg_X1), np.mean(ntg_X2))
+        centroid_distance = np.sqrt((tg_centroid[0] - ntg_centroid[0])**2 + (tg_centroid[1] - ntg_centroid[1])**2)
+        tg_var = np.var(tg_X1, ddof=1) + np.var(tg_X2, ddof=1)
+        ntg_var = np.var(ntg_X1, ddof=1) + np.var(ntg_X2, ddof=1)
+        pooled_std = np.sqrt((tg_var + ntg_var) / 2)
+        cohen_d_centroid = centroid_distance / pooled_std
+        return cohen_d_centroid
         
         """        
     def fitness_function(self, ga_instance, solution, solution_idx):
@@ -653,12 +684,18 @@ class GA_pipeline:
     def run_GA(self):
         in_pop_df = pd.read_csv(self.experiment_table_path, header=0, delimiter=",").iloc[-SOL_PER_GENERATION:]
         ini_pop = in_pop_df[['fa_threshold', 'turning_angle', 'step_size', 'min_length', 'max_length']].to_numpy()
+        if self.fitness_type == 1:
+           fitness_func = self.fitness_function_1
+           parent_selection = "nsga2"
+        elif self.fitness_type == 2:
+           fitness_func = self.fitness_function_2
+           parent_selection = "tournament"
         ga_instance = pygad.GA(num_generations=self.ngen,
                                num_parents_mating=self.num_parents_mating,
                                num_genes=self.num_genes,
-                               fitness_func=self.fitness_function,
+                               fitness_func= fitness_func,
                                on_start = self.on_start,
-                               parent_selection_type="nsga2",
+                               parent_selection_type=parent_selection,
                                crossover_type="scattered",
                                gene_space=self.gene_space,
                                gene_type=self.gene_type,
@@ -667,7 +704,7 @@ class GA_pipeline:
                                initial_population=ini_pop,
                                mutation_probability = self.mutation_rate,
                               # mutation_percent_genes=20,
-                               mutation_type="random",
+                               mutation_type=self.mutation_type,
                                keep_elitism = 0,
                                save_best_solutions = True,
                                keep_parents=0)
@@ -693,7 +730,13 @@ if __name__ == "__main__":
     print(sys.argv)
     project_code = sys.argv[1] #"20.5xfad.01"
     project_folder_name = sys.argv[2] #"GA_run_300"
-    mutation_rate = float(sys.argv[3]) 
+    if sys.argv[3] == 'adaptive':
+      mutation_type = sys.argv[3]
+      mutation_rate = None
+    else:
+      mutation_type = 'random'
+      mutation_rate = float(sys.argv[3])
+    fitness_type = int(sys.argv[4])
     # number of generations to run?? why did it run 5 instead of 1?
     ngen = 600
     num_parents_mating = 3
@@ -725,7 +768,7 @@ if __name__ == "__main__":
 
     gene_type = [int, int, float, float, int]
 
-    new_search = GA_pipeline(ngen=ngen, project_folder_name = project_folder_name, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
+    new_search = GA_pipeline(ngen=ngen, mutation_type = mutation_type, fitness_type = fitness_type, project_folder_name = project_folder_name, experiment_table_path=experiment_table_path, runno_list=runno_list, debug=False,
                              dsi_studio=dsi_studio, exclusion_list=exclusion_list, num_parents_mating=num_parents_mating,
                              gene_space=gene_space, gene_type=gene_type, project_code=project_code, mutation_rate=mutation_rate)
 
